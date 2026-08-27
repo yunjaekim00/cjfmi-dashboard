@@ -12,18 +12,21 @@ const MAX_PAGES = 5;
 /**
  * 조회를 몇 년 단위로 쪼갤지.
  *
- * ECOS 응답 한 건이 400바이트가 넘어서 일별 30년치를 한 번에 받으면 4MB가 넘고,
- * Next.js 의 fetch 캐시는 2MB 를 넘는 응답을 저장하지 않는다(캐시 미스가 계속 남).
- * 5년(약 1,300건, 600KB) 단위로 끊으면 창마다 캐시에 들어가고,
- * 과거 창은 값이 변하지 않으므로 훨씬 길게 캐시할 수 있다.
+ * ECOS 응답 한 건이 400바이트가 넘어서 일별 30년치를 한 번에 받으면 4MB 가 넘고,
+ * Next.js 의 fetch 캐시는 2MB 를 넘는 응답을 저장하지 않는다.
+ * 반대로 잘게 쪼개면 요청 수가 늘어 ECOS 호출 한도(3분간 300회)에 걸린다.
+ * 10년이면 일별 약 2,600건 ≈ 1.2MB 라 캐시에는 들어가면서 창 수는 4개로 줄어든다.
  */
-const WINDOW_YEARS = 5;
+const WINDOW_YEARS = 10;
 
 /** 이미 지나간 구간은 값이 바뀌지 않으므로 30일 캐시. */
 const PAST_REVALIDATE = 60 * 60 * 24 * 30;
 
-/** 최신 구간만 자주 확인한다. 브라우저는 5분마다 폴링하지만 실제 호출은 10분에 한 번. */
+/** 최신 구간만 자주 확인한다. */
 const CURRENT_REVALIDATE = 60 * 10;
+
+/** ERROR-602 를 맞으면 30분간 차단된다. 그동안은 아예 요청하지 않는다. */
+const RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 
 export type EcosQuery = {
   /** 통계표코드 (예: 환율 = 731Y001) */
@@ -38,22 +41,11 @@ export type EcosQuery = {
   end: string;
 };
 
-type EcosRow = {
-  TIME: string;
-  DATA_VALUE: string;
-  UNIT_NAME?: string;
-  ITEM_NAME1?: string;
-};
+type EcosRow = { TIME: string; DATA_VALUE: string };
 
 type EcosResponse = {
-  StatisticSearch?: {
-    list_total_count: number;
-    row: EcosRow[];
-  };
-  RESULT?: {
-    CODE: string;
-    MESSAGE: string;
-  };
+  StatisticSearch?: { list_total_count: number; row: EcosRow[] };
+  RESULT?: { CODE: string; MESSAGE: string };
 };
 
 export class EcosError extends Error {
@@ -62,6 +54,37 @@ export class EcosError extends Error {
     this.name = "EcosError";
   }
 }
+
+/** ECOS 호출 한도(3분간 300회)에 걸린 상태. 30분간 풀리지 않는다. */
+export class EcosRateLimitError extends EcosError {
+  constructor(readonly retryAt: number) {
+    const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60000));
+    super(
+      `한국은행 API 호출 한도(3분간 300회)에 걸렸습니다. 약 ${minutes}분 뒤에 자동으로 복구됩니다.`
+    );
+    this.name = "EcosRateLimitError";
+  }
+}
+
+/**
+ * 프로세스 안에 남는 캐시.
+ *
+ * Next.js 의 fetch 캐시는 `.next` 를 지우거나 재배포하면 통째로 날아가고,
+ * 개발 중에는 핫리로드마다 무효화되기도 한다. 그때마다 ECOS 를 수십 번 다시
+ * 부르면 호출 한도에 걸리므로, 파싱된 결과를 프로세스 메모리에도 들고 있는다.
+ * globalThis 에 두는 건 dev 에서 모듈이 다시 평가돼도 살아남게 하기 위해서다.
+ */
+type MemoEntry = { points: Point[]; expiresAt: number };
+
+const memo: Map<string, MemoEntry> = ((globalThis as Record<string, unknown>).__ecosMemo ??=
+  new Map()) as Map<string, MemoEntry>;
+
+const breaker: { blockedUntil: number } = ((globalThis as Record<string, unknown>)
+  .__ecosBreaker ??= { blockedUntil: 0 }) as { blockedUntil: number };
+
+/** 이번 렌더에서 ECOS 를 몇 번 실제로 불렀는지 (개발 중 진단용). */
+let liveCalls = 0;
+let memoHits = 0;
 
 /** ECOS 의 TIME("20260825" / "202608") 을 "YYYY-MM-DD" 로 변환. */
 function normalizeTime(time: string): string {
@@ -85,10 +108,7 @@ function stampFor(year: number, edge: "start" | "end", width: number): string {
 
 type Window = { start: string; end: string; revalidate: number };
 
-/**
- * [start, end] 를 WINDOW_YEARS 단위로 쪼갠다.
- * 마지막 창만 "현재"로 보고 짧게 캐시한다.
- */
+/** [start, end] 를 WINDOW_YEARS 단위로 쪼갠다. 마지막 창만 "현재"로 보고 짧게 캐시한다. */
 function splitWindows(query: EcosQuery): Window[] {
   const width = query.start.length;
   const firstYear = yearOf(query.start);
@@ -111,31 +131,33 @@ function splitWindows(query: EcosQuery): Window[] {
 
 function buildUrl(apiKey: string, query: EcosQuery, from: number, to: number): string {
   return [
-    ECOS_BASE,
-    encodeURIComponent(apiKey),
-    "json",
-    "kr",
-    String(from),
-    String(to),
-    query.statCode,
-    query.cycle,
-    query.start,
-    query.end,
-    query.itemCode1,
+    ECOS_BASE, encodeURIComponent(apiKey), "json", "kr",
+    String(from), String(to),
+    query.statCode, query.cycle, query.start, query.end, query.itemCode1,
   ].join("/");
 }
 
+function assertNotBlocked() {
+  if (breaker.blockedUntil > Date.now()) throw new EcosRateLimitError(breaker.blockedUntil);
+}
+
 async function fetchPage(url: string, revalidate: number) {
+  assertNotBlocked();
+  liveCalls += 1;
+
   const res = await fetch(url, { next: { revalidate } });
 
-  if (!res.ok) {
-    throw new EcosError(`ECOS 응답 오류 (HTTP ${res.status})`);
-  }
+  if (!res.ok) throw new EcosError(`ECOS 응답 오류 (HTTP ${res.status})`);
 
   const json = (await res.json()) as EcosResponse;
 
   if (json.RESULT) {
-    // ECOS 는 "해당하는 데이터가 없습니다" 도 오류 코드로 돌려준다.
+    // 한도에 걸렸으면 남은 요청까지 밀어 넣어 상황을 악화시키지 않는다.
+    if (json.RESULT.CODE === "ERROR-602") {
+      breaker.blockedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+      throw new EcosRateLimitError(breaker.blockedUntil);
+    }
+    // "해당하는 데이터가 없습니다" 도 오류 코드로 돌려준다.
     if (json.RESULT.CODE === "INFO-200") return { rows: [], total: 0 };
     throw new EcosError(`ECOS ${json.RESULT.CODE}: ${json.RESULT.MESSAGE.split("\n")[0].trim()}`);
   }
@@ -146,15 +168,27 @@ async function fetchPage(url: string, revalidate: number) {
   };
 }
 
-/** 조회 창 하나를 통째로 받는다 (건수가 많으면 페이지를 이어받음). */
-async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Promise<EcosRow[]> {
+function toPoints(rows: EcosRow[]): Point[] {
+  return rows
+    .map((row) => ({ date: normalizeTime(row.TIME), value: toFiniteNumber(row.DATA_VALUE) }))
+    .filter((point): point is Point => point.value !== null);
+}
+
+/** 조회 창 하나. 프로세스 캐시에 있으면 네트워크를 타지 않는다. */
+async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Promise<Point[]> {
   const scoped: EcosQuery = { ...query, start: window.start, end: window.end };
+  const key = `${scoped.statCode}/${scoped.cycle}/${scoped.itemCode1}/${scoped.start}/${scoped.end}`;
+
+  const cached = memo.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    memoHits += 1;
+    return cached.points;
+  }
 
   const first = await fetchPage(buildUrl(apiKey, scoped, 1, PAGE_SIZE), window.revalidate);
   const rows = [...first.rows];
 
   const pages = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
-
   for (let page = 1; page < pages; page += 1) {
     const next = await fetchPage(
       buildUrl(apiKey, scoped, page * PAGE_SIZE + 1, (page + 1) * PAGE_SIZE),
@@ -163,7 +197,13 @@ async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Pr
     rows.push(...next.rows);
   }
 
-  return rows;
+  const points = toPoints(rows);
+
+  // 지난 구간은 값이 안 바뀌므로 오래 들고 있어도 되지만, 메모리를 감안해 상한을 둔다.
+  const ttl = window.revalidate === CURRENT_REVALIDATE ? CURRENT_REVALIDATE : 60 * 60 * 6;
+  memo.set(key, { points, expiresAt: Date.now() + ttl * 1000 });
+
+  return points;
 }
 
 /**
@@ -179,15 +219,25 @@ export async function fetchEcosSeries(query: EcosQuery): Promise<Point[]> {
     );
   }
 
-  const windows = splitWindows(query);
-  const chunks = await Promise.all(windows.map((window) => fetchWindow(apiKey, query, window)));
+  assertNotBlocked();
 
-  return chunks
-    .flat()
-    .map((row) => ({
-      date: normalizeTime(row.TIME),
-      value: toFiniteNumber(row.DATA_VALUE),
-    }))
-    .filter((point): point is Point => point.value !== null)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const windows = splitWindows(query);
+  const chunks: Point[][] = [];
+
+  // 창을 순차로 받는다. 한도에 걸린 순간 나머지를 쏘지 않기 위해서다.
+  for (const window of windows) chunks.push(await fetchWindow(apiKey, query, window));
+
+  return chunks.flat().sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 한 번의 데이터 수집에서 실제 네트워크 호출이 몇 번 났는지 확인용. */
+export function takeCallStats() {
+  const stats = { liveCalls, memoHits };
+  liveCalls = 0;
+  memoHits = 0;
+  return stats;
+}
+
+export function rateLimitedUntil(): number {
+  return breaker.blockedUntil;
 }

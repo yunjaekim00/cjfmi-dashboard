@@ -28,7 +28,7 @@ async function fetchViaJsonApi(
   url.searchParams.set("file_type", "json");
   url.searchParams.set("observation_start", observationStart);
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+  const res = await fetch(url, { next: { revalidate: 60 * 10 } });
 
   if (!res.ok) {
     throw new Error(`FRED 응답 오류 (HTTP ${res.status})`);
@@ -48,7 +48,7 @@ async function fetchViaCsv(seriesId: string, observationStart: string): Promise<
   url.searchParams.set("id", seriesId);
   url.searchParams.set("cosd", observationStart);
 
-  const res = await fetch(url, { next: { revalidate: 60 * 60 * 6 } });
+  const res = await fetch(url, { next: { revalidate: 60 * 10 } });
 
   if (!res.ok) {
     throw new Error(`FRED CSV 응답 오류 (HTTP ${res.status})`);
