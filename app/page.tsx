@@ -1,5 +1,5 @@
 import { Dashboard } from "@/components/Dashboard";
-import { getExchangeRateData } from "@/lib/data";
+import { getDashboardData } from "@/lib/dashboard";
 
 /**
  * 첫 화면은 서버에서 그려 바로 보이게 하고, 이후 갱신은 브라우저 폴링이 맡는다.
@@ -8,11 +8,11 @@ import { getExchangeRateData } from "@/lib/data";
 export const revalidate = 600;
 
 export default async function Page() {
-  const exchangeRate = await getExchangeRateData();
+  const data = await getDashboardData();
 
   return (
     <main>
-      <Dashboard initialExchangeRate={exchangeRate} />
+      <Dashboard initial={data} />
     </main>
   );
 }

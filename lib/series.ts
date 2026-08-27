@@ -65,6 +65,32 @@ export function latestChange(points: Point[]) {
   return { latest, change, changePct };
 }
 
+/**
+ * 최신 값과 n 개월 전 값의 차이.
+ * 정책금리처럼 며칠씩 값이 그대로인 계열은 직전 관측치와 비교해 봐야 늘 0 이라,
+ * "전월대비" 로 비교해야 의미가 생긴다.
+ */
+export function changeVsMonthsAgo(points: Point[], months: number) {
+  const latest = points.at(-1);
+  if (!latest) return null;
+
+  const target = new Date(toMs(latest.date));
+  target.setUTCMonth(target.getUTCMonth() - months);
+  const targetDate = new Date(target.getTime()).toISOString().slice(0, 10);
+
+  // 그 날짜 이전(포함)의 마지막 관측치. 없으면 가장 오래된 값.
+  let baseline = points[0];
+  for (const point of points) {
+    if (point.date > targetDate) break;
+    baseline = point;
+  }
+
+  const change = latest.value - baseline.value;
+  const changePct = baseline.value !== 0 ? (change / baseline.value) * 100 : 0;
+
+  return { latest, change, changePct };
+}
+
 /** 스파크라인용으로 마지막 n 개월치만 잘라낸다. */
 export function tail(points: Point[], months: number): Point[] {
   const last = points.at(-1);
@@ -129,7 +155,7 @@ export function buildTimeTicks(startMs: number, endMs: number) {
  * 눈금 간격을 먼저 정하고 그 배수만 눈금으로 쓴다.
  */
 export function niceScale(values: number[], targetTicks = 5) {
-  if (!values.length) return { domain: [0, 1] as [number, number], ticks: [0, 1] };
+  if (!values.length) return { domain: [0, 1] as [number, number], ticks: [0, 1], decimals: 0 };
 
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -145,7 +171,10 @@ export function niceScale(values: number[], targetTicks = 5) {
     ticks.push(Number(v.toFixed(10)));
   }
 
-  return { domain: [lo, hi] as [number, number], ticks };
+  // 눈금 간격이 0.2 면 소수 첫째 자리까지, 50 이면 정수까지 찍는다.
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
+
+  return { domain: [lo, hi] as [number, number], ticks, decimals };
 }
 
 function niceStep(raw: number): number {

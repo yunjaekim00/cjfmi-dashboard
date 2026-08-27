@@ -1,5 +1,5 @@
 import { Sparkline } from "@/components/Sparkline";
-import { formatKoreanDate, formatNumber, formatSigned } from "@/lib/format";
+import { formatChange, formatNumber, formatPeriod } from "@/lib/format";
 import type { IndicatorSummary } from "@/lib/types";
 
 /**
@@ -7,7 +7,8 @@ import type { IndicatorSummary } from "@/lib/types";
  * 상승은 빨강, 하락은 파랑 — 국내 금융 지표 표기 관행을 따른다.
  */
 export function IndicatorCard({ indicator }: { indicator: IndicatorSummary }) {
-  const { label, unit, value, change, changePct, asOf, digits, spark } = indicator;
+  const { label, unit, value, change, changePct, asOf, period, digits, changeStyle, spark, stepSpark } =
+    indicator;
 
   const rising = change > 0;
   const flat = change === 0;
@@ -26,15 +27,18 @@ export function IndicatorCard({ indicator }: { indicator: IndicatorSummary }) {
             <span className="text-[12px] text-muted">{unit}</span>
           </div>
 
-          <div className="tabular mt-0.5 text-[12px] font-medium whitespace-nowrap" style={{ color }}>
-            {formatSigned(change, digits)} ({formatSigned(changePct, 2)}%)
+          <div
+            className="tabular mt-0.5 text-[12px] font-medium whitespace-nowrap"
+            style={{ color }}
+          >
+            {formatChange(changeStyle, change, changePct, digits)}
           </div>
 
-          <div className="tabular mt-0.5 text-[11px] text-muted">{formatKoreanDate(asOf)}</div>
+          <div className="tabular mt-0.5 text-[11px] text-muted">{formatPeriod(asOf, period)}</div>
         </div>
 
         <div className="mt-1 min-w-0 flex-1 overflow-hidden">
-          <Sparkline points={spark} color={color} />
+          <Sparkline points={spark} color={color} step={stepSpark} />
         </div>
       </div>
     </div>

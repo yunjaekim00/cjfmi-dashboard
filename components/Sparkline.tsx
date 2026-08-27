@@ -4,15 +4,17 @@ type Props = {
   points: Point[];
   /** 선 색 (상승/하락에 따라 호출부에서 결정) */
   color: string;
+  /** 정책금리처럼 계단 함수인 계열은 계단으로 그린다 */
+  step?: boolean;
   width?: number;
   height?: number;
 };
 
 /**
  * 카드용 초소형 추세선. 축도 눈금도 없어서 recharts 를 쓸 이유가 없고,
- * 카드가 12장 넘게 깔리므로 순수 SVG 가 훨씬 가볍다.
+ * 카드가 여러 장 깔리므로 순수 SVG 가 훨씬 가볍다.
  */
-export function Sparkline({ points, color, width = 128, height = 44 }: Props) {
+export function Sparkline({ points, color, step = false, width = 128, height = 44 }: Props) {
   if (points.length < 2) {
     return <div style={{ width, height }} aria-hidden />;
   }
@@ -33,7 +35,15 @@ export function Sparkline({ points, color, width = 128, height = 44 }: Props) {
     return [x, y] as const;
   });
 
-  const d = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+  const d = coords
+    .map(([x, y], i) => {
+      if (i === 0) return `M${x.toFixed(2)} ${y.toFixed(2)}`;
+      // 계단선은 이전 높이를 유지한 채 옆으로 간 뒤 수직으로 꺾는다.
+      if (step) return `H${x.toFixed(2)} V${y.toFixed(2)}`;
+      return `L${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+
   const [lastX, lastY] = coords[coords.length - 1];
 
   return (

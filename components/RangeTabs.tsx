@@ -11,7 +11,7 @@ type Props = {
 
 export function RangeTabs({ value, onChange, available }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-0.5" role="group" aria-label="기간 선택">
+    <div className="flex flex-wrap items-center justify-end gap-x-0.5 gap-y-1" role="group" aria-label="기간 선택">
       {RANGE_KEYS.map((range) => {
         const selected = range === value;
         const enabled = available ? available(range) : true;
@@ -24,7 +24,7 @@ export function RangeTabs({ value, onChange, available }: Props) {
             aria-pressed={selected}
             onClick={() => onChange(range)}
             className={[
-              "rounded-md px-2.5 py-1 text-[12px] transition-colors",
+              "rounded-md px-2 py-1 text-[12px] transition-colors",
               selected
                 ? "bg-[#e7e7e7] font-semibold text-ink"
                 : "text-ink-2 hover:bg-[#f1f1f1]",

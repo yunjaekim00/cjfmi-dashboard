@@ -16,9 +16,9 @@ export function StatusNotice({ status }: { status: SourceStatus[] }) {
         ))}
       </ul>
       <p className="mt-2 text-[#8b6a1e]">
-        한국은행 데이터는 <code className="rounded bg-[#f5ebd4] px-1">.env.local</code> 의{" "}
-        <code className="rounded bg-[#f5ebd4] px-1">ECOS_API_KEY</code> 가 필요합니다. 자세한
-        발급 방법은 README 를 참고하세요.
+        한국은행 데이터에는 <code className="rounded bg-[#f5ebd4] px-1">ECOS_API_KEY</code> 가
+        필요합니다. 로컬은 <code className="rounded bg-[#f5ebd4] px-1">.env.local</code>, 배포는
+        Vercel 의 Environment Variables 를 확인하세요.
       </p>
     </div>
   );

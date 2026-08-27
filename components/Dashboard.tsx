@@ -2,36 +2,26 @@
 
 import { useMemo, useState } from "react";
 
-import { ExchangeRateChart } from "@/components/ExchangeRateChart";
 import { IndicatorCard } from "@/components/IndicatorCard";
 import { LiveStatus } from "@/components/LiveStatus";
+import { SeriesChart } from "@/components/SeriesChart";
 import { StatusNotice } from "@/components/StatusNotice";
-import { summarizeUsdKrw } from "@/lib/summary";
-import { useLiveExchangeRate } from "@/lib/useLiveExchangeRate";
-import type { ExchangeRateData } from "@/lib/types";
+import { CHARTS, TABS, type TabId } from "@/lib/catalog";
+import { buildSummaries } from "@/lib/summary";
+import { useLiveDashboard } from "@/lib/useLiveDashboard";
+import type { DashboardData } from "@/lib/types";
 
-const TABS = [
-  { id: "overview", label: "1. 종합 지표" },
-  { id: "fx", label: "2. 환율" },
-] as const;
-
-type TabId = (typeof TABS)[number]["id"];
-
-export function Dashboard({ initialExchangeRate }: { initialExchangeRate: ExchangeRateData }) {
+export function Dashboard({ initial }: { initial: DashboardData }) {
   const [tab, setTab] = useState<TabId>("overview");
-  const { data, checkedAt, refreshing, error, refresh } = useLiveExchangeRate(initialExchangeRate);
+  const { data, checkedAt, refreshing, error, refresh } = useLiveDashboard(initial);
 
-  /**
-   * 종합지표 카드 목록. 지금은 원/달러 한 장뿐이고,
-   * 지표를 추가할 때 이 배열만 늘리면 된다.
-   */
-  const indicators = useMemo(() => {
-    const usdKrw = summarizeUsdKrw(data);
-    return usdKrw ? [usdKrw] : [];
-  }, [data]);
+  const indicators = useMemo(() => buildSummaries(data.series), [data.series]);
+
+  const rateCharts = CHARTS.filter((chart) => chart.tab === "rates");
+  const fxCharts = CHARTS.filter((chart) => chart.tab === "fx");
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-5 py-6 sm:px-8">
+    <div className="mx-auto w-full max-w-[1800px] px-5 py-6 sm:px-8">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line">
         <nav className="flex items-center gap-1" role="tablist">
           {TABS.map((item) => {
@@ -77,13 +67,31 @@ export function Dashboard({ initialExchangeRate }: { initialExchangeRate: Exchan
           ) : (
             <p className="text-[13px] text-muted">표시할 지표가 없습니다.</p>
           )
-        ) : (
+        ) : null}
+
+        {tab === "rates" ? (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="xl:col-span-2">
-              <ExchangeRateChart data={data} />
-            </div>
+            {rateCharts.map((chart) => (
+              <SeriesChart
+                key={chart.id}
+                spec={chart}
+                series={data.series}
+                fetchedAt={data.fetchedAt}
+                height={300}
+              />
+            ))}
           </div>
-        )}
+        ) : null}
+
+        {tab === "fx" ? (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {fxCharts.map((chart) => (
+              <div key={chart.id} className="xl:col-span-2">
+                <SeriesChart spec={chart} series={data.series} fetchedAt={data.fetchedAt} />
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );
