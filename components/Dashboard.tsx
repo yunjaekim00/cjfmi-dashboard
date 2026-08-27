@@ -17,8 +17,8 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
 
   const indicators = useMemo(() => buildSummaries(data.series), [data.series]);
 
-  const rateCharts = CHARTS.filter((chart) => chart.tab === "rates");
-  const fxCharts = CHARTS.filter((chart) => chart.tab === "fx");
+  // 차트 탭은 둘 다 같은 3열 그리드를 쓴다.
+  const charts = CHARTS.filter((chart) => chart.tab === tab);
 
   return (
     <div className="mx-auto w-full max-w-[1800px] px-5 py-6 sm:px-8">
@@ -69,9 +69,9 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
           )
         ) : null}
 
-        {tab === "rates" ? (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {rateCharts.map((chart) => (
+        {charts.length ? (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {charts.map((chart) => (
               <SeriesChart
                 key={chart.id}
                 spec={chart}
@@ -79,16 +79,6 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
                 fetchedAt={data.fetchedAt}
                 height={300}
               />
-            ))}
-          </div>
-        ) : null}
-
-        {tab === "fx" ? (
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {fxCharts.map((chart) => (
-              <div key={chart.id} className="xl:col-span-2">
-                <SeriesChart spec={chart} series={data.series} fetchedAt={data.fetchedAt} />
-              </div>
             ))}
           </div>
         ) : null}

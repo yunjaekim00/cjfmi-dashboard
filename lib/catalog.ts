@@ -194,6 +194,12 @@ export const CHARTS: ChartSpec[] = [
     series: [{ seriesId: "usdkrw", label: "매매기준율(한국은행)", color: COLOR.blue }],
     sources: ["한국은행「환율」"],
   },
+  {
+    id: "jpykrw", tab: "fx", title: "원/엔(100엔) 환율",
+    unit: "원", digits: 1,
+    series: [{ seriesId: "jpykrw", label: "매매기준율(한국은행)", color: COLOR.blue }],
+    sources: ["한국은행「환율」"],
+  },
 ];
 
 export const TABS: Array<{ id: TabId; label: string }> = [
