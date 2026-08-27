@@ -3,14 +3,27 @@ import type { Point } from "@/lib/types";
 
 const ECOS_BASE = "https://ecos.bok.or.kr/api/StatisticSearch";
 
-/**
- * 한 번에 요청하는 건수. ECOS 는 요청 건수 상한이 있어서
- * list_total_count 를 보고 나머지 페이지를 이어 받는다.
- */
+/** 한 번에 요청하는 건수. 아래 조회 창 하나가 이보다 커질 일은 없다. */
 const PAGE_SIZE = 10000;
 
-/** 안전장치: 이 이상은 받지 않는다 (일별 환율 30년치도 1만 건 미만). */
-const MAX_PAGES = 10;
+/** 안전장치: 한 조회 창에서 이 이상은 받지 않는다. */
+const MAX_PAGES = 5;
+
+/**
+ * 조회를 몇 년 단위로 쪼갤지.
+ *
+ * ECOS 응답 한 건이 400바이트가 넘어서 일별 30년치를 한 번에 받으면 4MB가 넘고,
+ * Next.js 의 fetch 캐시는 2MB 를 넘는 응답을 저장하지 않는다(캐시 미스가 계속 남).
+ * 5년(약 1,300건, 600KB) 단위로 끊으면 창마다 캐시에 들어가고,
+ * 과거 창은 값이 변하지 않으므로 훨씬 길게 캐시할 수 있다.
+ */
+const WINDOW_YEARS = 5;
+
+/** 이미 지나간 구간은 값이 바뀌지 않으므로 30일 캐시. */
+const PAST_REVALIDATE = 60 * 60 * 24 * 30;
+
+/** 최신 구간만 자주 확인한다. 브라우저는 5분마다 폴링하지만 실제 호출은 10분에 한 번. */
+const CURRENT_REVALIDATE = 60 * 10;
 
 export type EcosQuery = {
   /** 통계표코드 (예: 환율 = 731Y001) */
@@ -58,6 +71,44 @@ function normalizeTime(time: string): string {
   return time;
 }
 
+/** "19900101" -> 1990 */
+function yearOf(stamp: string): number {
+  return Number(stamp.slice(0, 4));
+}
+
+/** 연도 경계에 맞춘 시작/끝 스탬프. 주기에 따라 자릿수가 다르다. */
+function stampFor(year: number, edge: "start" | "end", width: number): string {
+  if (width === 4) return String(year);
+  if (width === 6) return `${year}${edge === "start" ? "01" : "12"}`;
+  return `${year}${edge === "start" ? "0101" : "1231"}`;
+}
+
+type Window = { start: string; end: string; revalidate: number };
+
+/**
+ * [start, end] 를 WINDOW_YEARS 단위로 쪼갠다.
+ * 마지막 창만 "현재"로 보고 짧게 캐시한다.
+ */
+function splitWindows(query: EcosQuery): Window[] {
+  const width = query.start.length;
+  const firstYear = yearOf(query.start);
+  const lastYear = yearOf(query.end);
+  const windows: Window[] = [];
+
+  for (let year = firstYear; year <= lastYear; year += WINDOW_YEARS) {
+    const endYear = Math.min(year + WINDOW_YEARS - 1, lastYear);
+    const isLast = endYear === lastYear;
+
+    windows.push({
+      start: year === firstYear ? query.start : stampFor(year, "start", width),
+      end: isLast ? query.end : stampFor(endYear, "end", width),
+      revalidate: isLast ? CURRENT_REVALIDATE : PAST_REVALIDATE,
+    });
+  }
+
+  return windows;
+}
+
 function buildUrl(apiKey: string, query: EcosQuery, from: number, to: number): string {
   return [
     ECOS_BASE,
@@ -74,11 +125,8 @@ function buildUrl(apiKey: string, query: EcosQuery, from: number, to: number): s
   ].join("/");
 }
 
-async function fetchPage(url: string): Promise<{ rows: EcosRow[]; total: number }> {
-  const res = await fetch(url, {
-    // 환율은 하루 한 번 갱신되므로 6시간 캐시로 충분하다.
-    next: { revalidate: 60 * 60 * 6 },
-  });
+async function fetchPage(url: string, revalidate: number) {
+  const res = await fetch(url, { next: { revalidate } });
 
   if (!res.ok) {
     throw new EcosError(`ECOS 응답 오류 (HTTP ${res.status})`);
@@ -87,6 +135,8 @@ async function fetchPage(url: string): Promise<{ rows: EcosRow[]; total: number 
   const json = (await res.json()) as EcosResponse;
 
   if (json.RESULT) {
+    // ECOS 는 "해당하는 데이터가 없습니다" 도 오류 코드로 돌려준다.
+    if (json.RESULT.CODE === "INFO-200") return { rows: [], total: 0 };
     throw new EcosError(`ECOS ${json.RESULT.CODE}: ${json.RESULT.MESSAGE.split("\n")[0].trim()}`);
   }
 
@@ -94,6 +144,26 @@ async function fetchPage(url: string): Promise<{ rows: EcosRow[]; total: number 
     rows: json.StatisticSearch?.row ?? [],
     total: json.StatisticSearch?.list_total_count ?? 0,
   };
+}
+
+/** 조회 창 하나를 통째로 받는다 (건수가 많으면 페이지를 이어받음). */
+async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Promise<EcosRow[]> {
+  const scoped: EcosQuery = { ...query, start: window.start, end: window.end };
+
+  const first = await fetchPage(buildUrl(apiKey, scoped, 1, PAGE_SIZE), window.revalidate);
+  const rows = [...first.rows];
+
+  const pages = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
+
+  for (let page = 1; page < pages; page += 1) {
+    const next = await fetchPage(
+      buildUrl(apiKey, scoped, page * PAGE_SIZE + 1, (page + 1) * PAGE_SIZE),
+      window.revalidate
+    );
+    rows.push(...next.rows);
+  }
+
+  return rows;
 }
 
 /**
@@ -105,25 +175,15 @@ export async function fetchEcosSeries(query: EcosQuery): Promise<Point[]> {
 
   if (!apiKey) {
     throw new EcosError(
-      "ECOS_API_KEY 가 설정되지 않았습니다. .env.local 에 한국은행 API 인증키를 넣어주세요."
+      "ECOS_API_KEY 가 설정되지 않았습니다. 로컬은 .env.local, 배포는 Vercel 의 Environment Variables 에 넣어주세요."
     );
   }
 
-  const first = await fetchPage(buildUrl(apiKey, query, 1, PAGE_SIZE));
-  const rows = [...first.rows];
+  const windows = splitWindows(query);
+  const chunks = await Promise.all(windows.map((window) => fetchWindow(apiKey, query, window)));
 
-  const pages = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
-
-  if (pages > 1) {
-    const rest = await Promise.all(
-      Array.from({ length: pages - 1 }, (_, i) =>
-        fetchPage(buildUrl(apiKey, query, (i + 1) * PAGE_SIZE + 1, (i + 2) * PAGE_SIZE))
-      )
-    );
-    for (const page of rest) rows.push(...page.rows);
-  }
-
-  return rows
+  return chunks
+    .flat()
     .map((row) => ({
       date: normalizeTime(row.TIME),
       value: toFiniteNumber(row.DATA_VALUE),

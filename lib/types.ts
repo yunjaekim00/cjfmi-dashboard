@@ -48,8 +48,6 @@ export type SourceStatus = {
 export type ExchangeRateData = {
   /** 한국은행 매매기준율 (일별, 전체 구간) */
   bok: Point[];
-  /** FRED 뉴욕 종가 (일별, 전체 구간) */
-  fred: Point[];
   /** 데이터 소스별 수집 상태 */
   status: SourceStatus[];
   /** 서버가 데이터를 조회한 시각 (ISO) */

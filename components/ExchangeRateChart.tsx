@@ -29,8 +29,11 @@ import {
 } from "@/lib/series";
 import type { ExchangeRateData, MergedRow } from "@/lib/types";
 
+/**
+ * 표시할 계열. 지금은 한국은행 매매기준율 한 줄이고,
+ * 다른 계열을 겹쳐 그리려면 여기에 추가하면 된다.
+ */
 const SERIES = [
-  { key: "fred", label: "뉴욕 종가(FRED)", color: "var(--series-2)", source: "FRED DEXKOUS" },
   { key: "bok", label: "매매기준율(한국은행)", color: "var(--series-1)", source: "한국은행「환율」" },
 ] as const;
 
@@ -51,10 +54,7 @@ function decimate(rows: MergedRow[]): MergedRow[] {
 export function ExchangeRateChart({ data }: { data: ExchangeRateData }) {
   const [range, setRange] = useState<RangeKey>("1Y");
 
-  const merged = useMemo(
-    () => mergeSeries({ bok: data.bok, fred: data.fred }),
-    [data.bok, data.fred]
-  );
+  const merged = useMemo(() => mergeSeries({ bok: data.bok }), [data.bok]);
 
   // 데이터가 비었을 땐 서버가 조회한 시각을 기준으로 삼는다 (렌더는 순수해야 하므로 Date.now 금지).
   const latestMs = merged.length ? merged[merged.length - 1].t : Date.parse(data.fetchedAt);
@@ -77,7 +77,7 @@ export function ExchangeRateChart({ data }: { data: ExchangeRateData }) {
 
   const latestDate = merged.length ? merged[merged.length - 1].date : null;
 
-  // 키가 없어 못 받아온 소스는 선도 범례도 그리지 않는다.
+  // 못 받아온 소스는 선도 범례도 그리지 않는다.
   const activeSeries = SERIES.filter((series) =>
     view.rows.some((row) => typeof row[series.key] === "number")
   );
@@ -163,18 +163,21 @@ export function ExchangeRateChart({ data }: { data: ExchangeRateData }) {
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-        {activeSeries.map((series) => (
-          <span key={series.key} className="flex items-center gap-2 text-[12px] text-ink-2">
-            <span
-              aria-hidden
-              className="inline-block h-[2px] w-5 rounded-full"
-              style={{ background: series.color }}
-            />
-            {series.label}
-          </span>
-        ))}
-      </div>
+      {/* 계열이 하나뿐이면 제목이 곧 범례라 범례 상자를 그리지 않는다. */}
+      {activeSeries.length > 1 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+          {activeSeries.map((series) => (
+            <span key={series.key} className="flex items-center gap-2 text-[12px] text-ink-2">
+              <span
+                aria-hidden
+                className="inline-block h-[2px] w-5 rounded-full"
+                style={{ background: series.color }}
+              />
+              {series.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       {activeSeries.length ? (
         <p className="mt-4 text-[11px] text-muted">
@@ -206,12 +209,14 @@ function ChartTooltip({ active, payload, label }: TooltipProps) {
           if (typeof entry?.value !== "number") return null;
 
           return (
-            <div key={series.key} className="flex items-center gap-2 text-[12px]">
-              <span
-                aria-hidden
-                className="inline-block h-[2px] w-3.5 rounded-full"
-                style={{ background: series.color }}
-              />
+            <div key={series.key} className="flex items-center gap-3 text-[12px]">
+              {SERIES.length > 1 ? (
+                <span
+                  aria-hidden
+                  className="inline-block h-[2px] w-3.5 rounded-full"
+                  style={{ background: series.color }}
+                />
+              ) : null}
               <span className="text-ink-2">{series.label}</span>
               <span className="tabular ml-auto font-semibold text-ink">
                 {formatNumber(entry.value, 1)}
