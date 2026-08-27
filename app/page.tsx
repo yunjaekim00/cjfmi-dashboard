@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,33 +18,74 @@ type ExchangePoint = {
   value: number;
 };
 
+type TabKey = "exchange" | "overview";
+type RangeKey = "6M" | "1Y" | "3Y" | "5Y" | "10Y" | "20Y" | "ALL";
+type DisplayMode = "원계열" | "증가율";
+
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const rangeOptions: RangeKey[] = ["6M", "1Y", "3Y", "5Y", "10Y", "20Y", "ALL"];
 
 function formatDateLabel(date: string) {
-  return new Date(date).toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
+  const d = new Date(date);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatLongDate(date: string) {
+  const d = new Date(date);
+  return `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
+}
+
+function formatCurrency(value: number) {
+  return `${value.toLocaleString("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} 원`;
+}
+
+function formatSummaryValue(value: number) {
+  return value.toLocaleString("ko-KR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 
-function formatValue(value: number) {
-  return `${value.toFixed(2)} KRW`;
+function buildRangeData(raw: ExchangePoint[], range: RangeKey) {
+  if (!raw.length) return raw;
+
+  const latest = new Date(raw[raw.length - 1].date);
+  let cutoff = new Date(latest);
+
+  if (range === "6M") cutoff.setMonth(latest.getMonth() - 6);
+  if (range === "1Y") cutoff.setFullYear(latest.getFullYear() - 1);
+  if (range === "3Y") cutoff.setFullYear(latest.getFullYear() - 3);
+  if (range === "5Y") cutoff.setFullYear(latest.getFullYear() - 5);
+  if (range === "10Y") cutoff.setFullYear(latest.getFullYear() - 10);
+  if (range === "20Y") cutoff.setFullYear(latest.getFullYear() - 20);
+  if (range === "ALL") return raw;
+
+  return raw.filter((point) => new Date(point.date) >= cutoff);
+}
+
+function getYAxisDomain(values: number[]) {
+  if (!values.length) return [0, 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const padding = Math.max((max - min) * 0.12, 5);
+  return [Math.floor((min - padding) / 5) * 5, Math.ceil((max + padding) / 5) * 5];
 }
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<TabKey>("exchange");
+  const [activeRange, setActiveRange] = useState<RangeKey>("ALL");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("원계열");
   const [data, setData] = useState<ExchangePoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   const fetchRate = async () => {
     try {
-      const response = await fetch("/api/exchange-rate", {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        throw new Error("API request failed");
-      }
+      const response = await fetch("/api/exchange-rate", { cache: "no-store" });
+      if (!response.ok) throw new Error("API request failed");
 
       const payload = await response.json();
       setData(payload.data ?? []);
@@ -57,172 +99,229 @@ export default function Home() {
 
   useEffect(() => {
     fetchRate();
-
-    const intervalId = setInterval(() => {
-      fetchRate();
-    }, POLL_INTERVAL_MS);
-
+    const intervalId = setInterval(() => fetchRate(), POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
   }, []);
 
-  const summary = useMemo(() => {
-    if (!data.length) return null;
+  const visibleData = useMemo(() => buildRangeData(data, activeRange), [data, activeRange]);
 
-    const first = data[0].value;
-    const last = data[data.length - 1].value;
+  const transformedData = useMemo(() => {
+    if (!visibleData.length) return [];
+
+    const baseline = visibleData[0].value;
+
+    return visibleData.map((point) => {
+      if (displayMode === "증가율") {
+        const diff = ((point.value - baseline) / baseline) * 100;
+        return { ...point, value: diff };
+      }
+
+      return point;
+    });
+  }, [displayMode, visibleData]);
+
+  const summary = useMemo(() => {
+    if (!visibleData.length) return null;
+    const first = visibleData[0].value;
+    const last = visibleData[visibleData.length - 1].value;
     const change = last - first;
     const changePercent = (change / first) * 100;
 
-    return {
-      first,
-      last,
-      change,
-      changePercent,
-    };
-  }, [data]);
+    return { first, last, change, changePercent };
+  }, [visibleData]);
+
+  const yDomain = useMemo(() => getYAxisDomain(transformedData.map((point) => point.value)), [transformedData]);
 
   return (
     <main className="min-h-screen bg-[#efefef] px-5 py-8 text-[#1a1a1a]">
-      <div className="mx-auto max-w-[1200px] rounded-[20px] border border-[#cfcfcf] bg-[#f5f5f3] p-6 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-[2.2rem] font-semibold leading-tight tracking-[-0.04em]">
-              한국 산업활동(전년동월대비)
-            </h1>
-            <div className="mt-3 flex items-center gap-3 text-[1.05rem] text-[#3a3a3a]">
-              <span>월별 · 최신: 2026.6월</span>
-            </div>
+      <div className="mx-auto max-w-[1200px] rounded-[20px] border border-[#c9c9c9] bg-[#f5f5f5] p-5 shadow-[0_0_0_1px_rgba(0,0,0,0.02)]">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="flex gap-3">
+            {[
+              { key: "exchange", label: "대외/환율" },
+              { key: "overview", label: "종합지표" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key as TabKey)}
+                className={[
+                  "rounded-xl border px-4 py-2 text-[17px] font-medium transition-colors",
+                  activeTab === tab.key
+                    ? "border-[#5ca4d8] bg-[#eaf5ff] text-[#1169a7] shadow-sm"
+                    : "border-[#cccccc] bg-[#f2f2f2] text-[#2b2b2b]",
+                ].join(" ")}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="h-11 min-w-[92px] rounded-md border border-[#2b8ec8] bg-[#eaf5ff] px-4 text-base font-semibold text-[#0b6fb8] shadow-sm">
-              증가율
-            </button>
-            <button className="h-11 min-w-[92px] rounded-md border border-[#b9c3cb] bg-[#f7f7f7] px-4 text-base font-medium text-[#1d2a35]">
-              원계열
-            </button>
+            {(["증가율", "원계열"] as DisplayMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setDisplayMode(mode)}
+                className={[
+                  "h-11 min-w-[96px] rounded-md border text-base font-medium",
+                  displayMode === mode
+                    ? "border-[#3f8fc7] bg-[#eaf4ff] text-[#0a6bb2] shadow-sm"
+                    : "border-[#cfcfcf] bg-white text-[#1d1d1d]",
+                ].join(" ")}
+              >
+                {mode}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="mb-6 flex flex-wrap items-center gap-3 text-base text-[#2c2c2c]">
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            6M
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            1Y
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            3Y
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            5Y
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            10Y
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            20Y
-          </button>
-          <button className="rounded-md border border-[#d8d8d8] bg-[#f0f0f0] px-4 py-2 text-sm font-medium text-[#4b4b4b]">
-            전체
-          </button>
-        </div>
-
-        <div className="rounded-[18px] border border-[#d8d8d8] bg-[#f6f6f6] p-3">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div className="text-[1.1rem] font-medium text-[#2b2b2b]">
-              {isLoading ? "데이터 불러오는 중..." : "대외/환율"}
-            </div>
-            {updatedAt ? (
-              <div className="text-xs text-[#5f5f5f]">
-                마지막 업데이트: {new Date(updatedAt).toLocaleString("ko-KR")}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mb-4 flex items-center justify-between gap-4 rounded-md border border-[#d1d1d1] bg-white px-4 py-3">
-            <div className="flex items-center gap-3">
-              <span className="inline-block h-3 w-8 rounded-sm bg-[#1d8f7a]" />
-              <span className="text-base font-medium text-[#1b1b1b]">USD/KRW</span>
-            </div>
-            {summary ? (
-              <div className="text-right text-sm text-[#2d2d2d]">
-                <div className="font-semibold">최근값: {formatValue(summary.last)}</div>
-                <div>
-                  {summary.change >= 0 ? "+" : ""}
-                  {summary.change.toFixed(2)} ({summary.changePercent >= 0 ? "+" : ""}
-                  {summary.changePercent.toFixed(2)}%)
+        {activeTab === "exchange" ? (
+          <>
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-[2.2rem] font-semibold tracking-[-0.05em]">
+                  원/달러 환율(매매기준율)
+                </h1>
+                <div className="mt-2 text-[1.1rem] text-[#3c3c3c]">
+                  일별 · 최신: {updatedAt ? formatLongDate(updatedAt) : "-"}
                 </div>
               </div>
-            ) : null}
-          </div>
 
-          <div className="h-[420px] w-full">
-            {isLoading ? (
-              <div className="flex h-full items-center justify-center text-[#555]">
-                그래프 로딩 중...
+              <div className="flex flex-wrap items-center gap-2">
+                {rangeOptions.map((range) => (
+                  <button
+                    key={range}
+                    type="button"
+                    onClick={() => setActiveRange(range)}
+                    className={[
+                      "rounded-md border px-4 py-2 text-[13px] font-medium transition-colors",
+                      activeRange === range
+                        ? "border-[#d7d7d7] bg-[#ececec] text-[#202020]"
+                        : "border-[#d7d7d7] bg-[#f6f6f6] text-[#4f4f4f]",
+                    ].join(" ")}
+                  >
+                    {range}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-                  <CartesianGrid stroke="#d8d8d8" strokeDasharray="0" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatDateLabel}
-                    tick={{ fill: "#4a4a4a", fontSize: 12 }}
-                    axisLine={{ stroke: "#7d7d7d" }}
-                    tickLine={false}
-                    minTickGap={28}
-                  />
-                  <YAxis
-                    domain={[
-                      (dataMin: number) => Math.floor(dataMin * 0.98),
-                      (dataMax: number) => Math.ceil(dataMax * 1.02),
-                    ]}
-                    tickFormatter={(value) => `${value.toFixed(0)}`}
-                    tick={{ fill: "#4a4a4a", fontSize: 12 }}
-                    axisLine={{ stroke: "#7d7d7d" }}
-                    tickLine={false}
-                    width={52}
-                  />
-                  <Tooltip
-                    formatter={(value) => {
-                      const numericValue =
-                        typeof value === "number" ? value : Number(value ?? 0);
-                      return [formatValue(numericValue), "환율"];
-                    }}
-                    labelFormatter={(label) => formatDateLabel(String(label))}
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      borderRadius: 12,
-                      border: "1px solid #d1d1d1",
-                    }}
-                  />
-                  <ReferenceLine x={data[data.length - 1]?.date} stroke="#000" strokeDasharray="4 4" />
-                  <Line
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#1d8f7a"
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div className="mt-6 flex items-center justify-center gap-10 text-base text-[#2b2b2b]">
-          <div className="flex items-center gap-3">
-            <span className="inline-block h-2.5 w-6 rounded-sm bg-[#1d8f7a]" />
-            <span>USD/KRW</span>
-          </div>
-        </div>
+            <div className="h-[500px] w-full rounded-[16px] border border-[#d9d9d9] bg-[#f8f8f8] px-3 py-4">
+              {isLoading ? (
+                <div className="flex h-full items-center justify-center text-[#4d4d4d]">그래프 로딩 중...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={transformedData} margin={{ top: 10, right: 30, left: 10, bottom: 15 }}>
+                    <CartesianGrid stroke="#cfcfcf" strokeDasharray="0" />
+                    <XAxis
+                      dataKey="date"
+                      tickFormatter={(value) => formatDateLabel(value)}
+                      tick={{ fill: "#3d3d3d", fontSize: 12 }}
+                      axisLine={{ stroke: "#8d8d8d" }}
+                      tickLine={false}
+                      minTickGap={28}
+                    />
+                    <YAxis
+                      domain={yDomain}
+                      tickFormatter={(value) =>
+                        displayMode === "증가율" ? `${Number(value).toFixed(0)}%` : `${Number(value).toFixed(0)}`
+                      }
+                      tick={{ fill: "#3d3d3d", fontSize: 12 }}
+                      axisLine={{ stroke: "#8d8d8d" }}
+                      tickLine={false}
+                      width={70}
+                    />
+                    <Tooltip
+                      formatter={(value) => {
+                        const numericValue = typeof value === "number" ? value : Number(value ?? 0);
+                        if (displayMode === "증가율") {
+                          return [`${numericValue.toFixed(2)}%`, "증가율"];
+                        }
+                        return [formatCurrency(numericValue), "환율"];
+                      }}
+                      labelFormatter={(label) => formatLongDate(String(label))}
+                      contentStyle={{
+                        backgroundColor: "#fff",
+                        borderRadius: 12,
+                        border: "1px solid #d2d2d2",
+                        color: "#1d1d1d",
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#1f6fb7"
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 4, strokeWidth: 0, fill: "#1f6fb7" }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
 
-        <div className="mt-12 text-left text-base text-[#3b3b3b]">
-          <div>자료: Frankfurter API</div>
-        </div>
+            <div className="mt-8 text-[1.05rem] text-[#3b3b3b]">
+              자료: 한국은행/Frankfurter API 기준
+            </div>
+          </>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-[1.5fr_0.8fr]">
+            <div className="rounded-[18px] border border-[#d7d7d7] bg-[#f9f9f9] p-4">
+              <div className="mb-3 text-[1.15rem] font-medium text-[#1d1d1d]">원/달러</div>
+              <div className="mb-3 flex items-end gap-2">
+                <div className="text-[3.1rem] font-medium tracking-[-0.06em] text-[#111111]">
+                  {summary ? formatSummaryValue(summary.last) : "-"}
+                </div>
+                <div className="pb-2 text-[1.2rem] text-[#1f1f1f]">원</div>
+              </div>
+
+              <div className="mb-4 text-[1.05rem] text-[#cc5a3d]">
+                {summary ? `${summary.change >= 0 ? "+" : ""}${summary.change.toFixed(2)} (${summary.changePercent >= 0 ? "+" : ""}${summary.changePercent.toFixed(2)}%)` : "-"}
+              </div>
+
+              <div className="text-[1rem] text-[#555555]">
+                {updatedAt ? formatLongDate(updatedAt) : "-"}
+              </div>
+
+              <div className="mt-5 h-[170px] w-full">
+                {transformedData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={transformedData.slice(-30)} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="miniFill" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#1f6fb7" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#1f6fb7" stopOpacity={0.03} />
+                        </linearGradient>
+                      </defs>
+                      <Area type="monotone" dataKey="value" stroke="#1f6fb7" fill="url(#miniFill)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="rounded-[18px] border border-[#d7d7d7] bg-[#f4f4f4] p-5">
+              <div className="text-[1.1rem] font-medium text-[#1d1d1d]">주요 지표</div>
+              <div className="mt-4 space-y-4 text-base text-[#2d2d2d]">
+                <div className="flex items-center justify-between border-b border-[#d7d7d7] pb-2">
+                  <span>USD/KRW</span>
+                  <span className="font-semibold">{summary ? formatSummaryValue(summary.last) : "-"}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-[#d7d7d7] pb-2">
+                  <span>변동</span>
+                  <span className="font-semibold">
+                    {summary ? `${summary.change >= 0 ? "+" : ""}${summary.change.toFixed(2)}` : "-"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>기준일</span>
+                  <span className="font-semibold">{updatedAt ? formatLongDate(updatedAt) : "-"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
