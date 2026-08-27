@@ -4,8 +4,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DashboardData, Point, SeriesMap } from "@/lib/types";
 
-/** 폴링 주기. 금리·환율 모두 영업일에 한 번 고시되므로 5분이면 충분히 촘촘하다. */
-export const POLL_INTERVAL_MS = 5 * 60 * 1000;
+/**
+ * 폴링 주기.
+ *
+ * 서버가 외부 응답을 10분 캐시하므로, 그보다 자주 물어봐야 답이 바뀔 수가 없다.
+ * 주기를 캐시 수명에 맞춘다 — 5분이면 절반이 헛걸음이었다.
+ */
+export const POLL_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * 어떤 이유로든 이 간격보다 자주 묻지 않는다.
+ * 탭 전환(visibilitychange)마다 조회가 나가면 창을 왔다갔다 하는 것만으로
+ * 외부 API 호출이 쌓인다.
+ */
+const MIN_POLL_GAP_MS = 60 * 1000;
+
+/** 서버가 이만큼 안에 받아온 데이터면, 뜨자마자 다시 물어볼 필요가 없다. */
+const FRESH_ENOUGH_MS = 5 * 60 * 1000;
 
 /**
  * 폴링할 때 다시 받아올 구간(일).
@@ -69,10 +84,13 @@ export function useLiveDashboard(initial: DashboardData): Live {
   // 다음 요청의 since 를 만들기 위한 커서. state 로 두면 폴링 타이머가 매번 재설정된다.
   const cursorRef = useRef(latestDateOf(initial.series));
   const inFlightRef = useRef(false);
+  const lastPollAtRef = useRef(0);
 
-  const poll = useCallback(async (signal: AbortSignal) => {
+  const poll = useCallback(async (signal: AbortSignal, force = false) => {
     if (inFlightRef.current) return;
+    if (!force && Date.now() - lastPollAtRef.current < MIN_POLL_GAP_MS) return;
 
+    lastPollAtRef.current = Date.now();
     inFlightRef.current = true;
     setRefreshing(true);
 
@@ -107,8 +125,10 @@ export function useLiveDashboard(initial: DashboardData): Live {
   }, []);
 
   const controllerRef = useRef<AbortController | null>(null);
+
+  // 사용자가 직접 누른 새로고침은 간격 제한을 건너뛴다.
   const refresh = useCallback(() => {
-    if (controllerRef.current) void poll(controllerRef.current.signal);
+    if (controllerRef.current) void poll(controllerRef.current.signal, true);
   }, [poll]);
 
   useEffect(() => {
@@ -117,8 +137,13 @@ export function useLiveDashboard(initial: DashboardData): Live {
 
     const tick = () => void poll(controller.signal);
 
-    // 정적으로 캐시된 페이지를 받았을 수도 있으니 뜨자마자 한 번 확인한다.
-    tick();
+    /*
+     * 정적으로 캐시된 페이지를 받았을 수 있어 뜨자마자 한 번 확인하되,
+     * 서버가 방금 받아온 데이터라면 건너뛴다. 새로고침을 반복할 때마다
+     * 조회가 나가면 그것만으로 외부 API 한도를 소진한다.
+     */
+    const age = Date.now() - Date.parse(initial.fetchedAt);
+    if (!Number.isFinite(age) || age > FRESH_ENOUGH_MS) tick();
 
     const timer = window.setInterval(tick, POLL_INTERVAL_MS);
     const onVisible = () => {
@@ -135,7 +160,7 @@ export function useLiveDashboard(initial: DashboardData): Live {
       controller.abort();
       controllerRef.current = null;
     };
-  }, [poll]);
+  }, [poll, initial.fetchedAt]);
 
   return { data, checkedAt, refreshing, error, refresh };
 }

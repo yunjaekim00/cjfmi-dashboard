@@ -28,6 +28,14 @@ const CURRENT_REVALIDATE = 60 * 10;
 /** ERROR-602 를 맞으면 30분간 차단된다. 그동안은 아예 요청하지 않는다. */
 const RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 
+/**
+ * 스스로에게 거는 호출 상한. ECOS 한도는 3분간 300회인데, 배포·인스턴스가
+ * 여럿이면 합산되므로 한 프로세스는 그 절반 이하만 쓴다.
+ * 넘어서면 ECOS 를 부르지 않고 즉시 실패시킨다 — 한도에 걸려 30분 차단되는 것보다 낫다.
+ */
+const BUDGET_WINDOW_MS = 3 * 60 * 1000;
+const BUDGET_MAX_CALLS = 120;
+
 export type EcosQuery = {
   /** 통계표코드 (예: 환율 = 731Y001) */
   statCode: string;
@@ -56,6 +64,16 @@ export class EcosError extends Error {
 }
 
 /** ECOS 호출 한도(3분간 300회)에 걸린 상태. 30분간 풀리지 않는다. */
+/** 스스로 건 상한을 넘어선 상태. ECOS 를 실제로 부르지는 않았다. */
+export class EcosBudgetError extends EcosError {
+  constructor() {
+    super(
+      `호출이 몰려 잠시 조회를 건너뜁니다 (자체 상한 3분당 ${BUDGET_MAX_CALLS}회). 곧 자동으로 복구됩니다.`
+    );
+    this.name = "EcosBudgetError";
+  }
+}
+
 export class EcosRateLimitError extends EcosError {
   constructor(readonly retryAt: number) {
     const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60000));
@@ -81,6 +99,18 @@ const memo: Map<string, MemoEntry> = ((globalThis as Record<string, unknown>).__
 
 const breaker: { blockedUntil: number } = ((globalThis as Record<string, unknown>)
   .__ecosBreaker ??= { blockedUntil: 0 }) as { blockedUntil: number };
+
+/** 최근 3분간의 호출 시각. 자체 상한 판정에 쓴다. */
+const budget: { calls: number[] } = ((globalThis as Record<string, unknown>).__ecosBudget ??= {
+  calls: [],
+}) as { calls: number[] };
+
+/**
+ * 같은 조회창을 동시에 두 번 요청하지 않도록 진행 중인 약속을 공유한다.
+ * 새로고침이 몰리면 캐시가 채워지기 전에 같은 요청이 여러 번 나간다.
+ */
+const inflight: Map<string, Promise<Point[]>> = ((globalThis as Record<string, unknown>)
+  .__ecosInflight ??= new Map()) as Map<string, Promise<Point[]>>;
 
 /** 이번 렌더에서 ECOS 를 몇 번 실제로 불렀는지 (개발 중 진단용). */
 let liveCalls = 0;
@@ -141,11 +171,25 @@ function assertNotBlocked() {
   if (breaker.blockedUntil > Date.now()) throw new EcosRateLimitError(breaker.blockedUntil);
 }
 
-async function fetchPage(url: string, revalidate: number) {
+/** 자체 상한을 확인하고 이번 호출을 장부에 적는다. */
+function reserveCall() {
+  const now = Date.now();
+  budget.calls = budget.calls.filter((at) => now - at < BUDGET_WINDOW_MS);
+
+  if (budget.calls.length >= BUDGET_MAX_CALLS) throw new EcosBudgetError();
+
+  budget.calls.push(now);
+}
+
+async function fetchPage(url: string, revalidate: number, bypassCache = false) {
   assertNotBlocked();
+  reserveCall();
   liveCalls += 1;
 
-  const res = await fetch(url, { next: { revalidate } });
+  const res = await fetch(
+    url,
+    bypassCache ? { cache: "no-store" } : { next: { revalidate } }
+  );
 
   if (!res.ok) throw new EcosError(`ECOS 응답 오류 (HTTP ${res.status})`);
 
@@ -174,7 +218,33 @@ function toPoints(rows: EcosRow[]): Point[] {
     .filter((point): point is Point => point.value !== null);
 }
 
-/** 조회 창 하나. 프로세스 캐시에 있으면 네트워크를 타지 않는다. */
+/** 조회 창 하나를 실제로 받아온다 (건수가 많으면 페이지를 이어받음). */
+async function loadWindow(
+  apiKey: string,
+  scoped: EcosQuery,
+  window: Window,
+  bypassCache = false
+): Promise<Point[]> {
+  const first = await fetchPage(buildUrl(apiKey, scoped, 1, PAGE_SIZE), window.revalidate, bypassCache);
+  const rows = [...first.rows];
+
+  const pages = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
+  for (let page = 1; page < pages; page += 1) {
+    const next = await fetchPage(
+      buildUrl(apiKey, scoped, page * PAGE_SIZE + 1, (page + 1) * PAGE_SIZE),
+      window.revalidate,
+      bypassCache
+    );
+    rows.push(...next.rows);
+  }
+
+  return toPoints(rows);
+}
+
+/**
+ * 조회 창 하나. 프로세스 캐시에 있으면 네트워크를 타지 않고,
+ * 같은 창을 동시에 요청하면 진행 중인 약속을 함께 기다린다.
+ */
 async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Promise<Point[]> {
   const scoped: EcosQuery = { ...query, start: window.start, end: window.end };
   const key = `${scoped.statCode}/${scoped.cycle}/${scoped.itemCode1}/${scoped.start}/${scoped.end}`;
@@ -185,25 +255,44 @@ async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Pr
     return cached.points;
   }
 
-  const first = await fetchPage(buildUrl(apiKey, scoped, 1, PAGE_SIZE), window.revalidate);
-  const rows = [...first.rows];
-
-  const pages = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
-  for (let page = 1; page < pages; page += 1) {
-    const next = await fetchPage(
-      buildUrl(apiKey, scoped, page * PAGE_SIZE + 1, (page + 1) * PAGE_SIZE),
-      window.revalidate
-    );
-    rows.push(...next.rows);
+  const pending = inflight.get(key);
+  if (pending) {
+    memoHits += 1;
+    return pending;
   }
 
-  const points = toPoints(rows);
+  const isCurrentWindow = window.revalidate === CURRENT_REVALIDATE;
 
-  // 지난 구간은 값이 안 바뀌므로 오래 들고 있어도 되지만, 메모리를 감안해 상한을 둔다.
-  const ttl = window.revalidate === CURRENT_REVALIDATE ? CURRENT_REVALIDATE : 60 * 60 * 6;
-  memo.set(key, { points, expiresAt: Date.now() + ttl * 1000 });
+  const work = (async () => {
+    let points = await loadWindow(apiKey, scoped, window);
 
-  return points;
+    /*
+     * ECOS 는 멀쩡한 구간에도 간헐적으로 INFO-200("해당하는 데이터가 없습니다")을
+     * 돌려준다. 그대로 두면 Next.js fetch 캐시에 빈 응답이 최대 30일 박히고
+     * 차트에서 과거 구간이 통째로 사라진다. 과거 창이 비어 있으면 캐시를 우회해
+     * 한 번 다시 물어본다.
+     */
+    if (!points.length && !isCurrentWindow) {
+      console.warn(`[ecos] ${key}: 빈 응답 — 캐시를 우회해 재시도합니다.`);
+      points = await loadWindow(apiKey, scoped, window, true);
+    }
+
+    // 여전히 비어 있으면 캐시하지 않는다. 다음 요청에서 다시 시도하게 둔다.
+    if (points.length) {
+      const ttl = isCurrentWindow ? CURRENT_REVALIDATE : 60 * 60 * 6;
+      memo.set(key, { points, expiresAt: Date.now() + ttl * 1000 });
+    }
+
+    return points;
+  })();
+
+  inflight.set(key, work);
+
+  try {
+    return await work;
+  } finally {
+    inflight.delete(key);
+  }
 }
 
 /**
