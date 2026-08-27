@@ -24,7 +24,7 @@ export function IndicatorCard({ indicator }: { indicator: IndicatorSummary }) {
             <span className="tabular text-[24px] leading-tight font-bold whitespace-nowrap text-ink">
               {formatNumber(value, digits)}
             </span>
-            <span className="text-[12px] text-muted">{unit}</span>
+            {unit ? <span className="text-[12px] text-muted">{unit}</span> : null}
           </div>
 
           <div

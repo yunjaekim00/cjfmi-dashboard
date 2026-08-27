@@ -74,6 +74,17 @@ export const SERIES = {
     statCode: "817Y002", cycle: "D", itemCode1: "010300000", start: ECOS_DAILY_START,
   },
 
+  // ── 주가지수 (802Y001 주식시장(일)) ──
+  kospi: {
+    source: "ecos", label: "KOSPI지수",
+    statCode: "802Y001", cycle: "D", itemCode1: "0001000", start: ECOS_DAILY_START,
+  },
+  kosdaq: {
+    source: "ecos", label: "KOSDAQ지수",
+    // 코스닥 일별 자료는 2003년부터라, 그 이전을 조회해 봐야 빈 요청만 늘어난다.
+    statCode: "802Y001", cycle: "D", itemCode1: "0089000", start: "20030101",
+  },
+
   // ── 해외 (FRED) ──
   ust10: { source: "fred", label: "미국 국채 10년물", seriesId: "DGS10", start: FRED_START },
   fedFunds: {
@@ -82,6 +93,8 @@ export const SERIES = {
   ecbDeposit: {
     source: "fred", label: "ECB 예금금리", seriesId: "ECBDFR", start: FRED_START,
   },
+  // FRED 의 S&P 500 은 라이선스 때문에 최근 10년치만 제공된다.
+  sp500: { source: "fred", label: "S&P 500", seriesId: "SP500", start: FRED_START },
 } as const satisfies Record<string, SeriesDef>;
 
 export type SeriesId = keyof typeof SERIES;
@@ -133,6 +146,9 @@ export const CARDS: CardSpec[] = [
   { id: "ust10", label: "미국 10년물", seriesId: "ust10", unit: "%", digits: 2, changeStyle: "bp", period: "day", sparkMonths: 3 },
   { id: "usdkrw", label: "원/달러", seriesId: "usdkrw", unit: "원", digits: 1, changeStyle: "pct", period: "day", sparkMonths: 3 },
   { id: "jpykrw", label: "원/엔(100엔)", seriesId: "jpykrw", unit: "원", digits: 1, changeStyle: "pct", period: "day", sparkMonths: 3 },
+  { id: "kospi", label: "KOSPI", seriesId: "kospi", unit: "", digits: 2, changeStyle: "pct", period: "day", sparkMonths: 3 },
+  { id: "kosdaq", label: "KOSDAQ", seriesId: "kosdaq", unit: "", digits: 2, changeStyle: "pct", period: "day", sparkMonths: 3 },
+  { id: "sp500", label: "S&P 500", seriesId: "sp500", unit: "", digits: 2, changeStyle: "pct", period: "day", sparkMonths: 3 },
 ];
 
 // ───────────────────────── 차트 ─────────────────────────
