@@ -7,6 +7,8 @@
   KOSPI · KOSDAQ · S&P 500 요약 카드
 - **1. 금리** — 정책금리(한·미·유로) / 한국 단기금리 / 한국 채권금리
 - **2. 환율** — 원/달러 · 원/엔(100엔) 매매기준율
+- **3. 주간 모니터링** — 지난 일주일 금융시장 뉴스(Bloomberg · 국제금융센터)를 Claude 가 읽고
+  [주간이슈] 3건 · [시장반응] 분야별 한 문장으로 정리. 참고 보고서 서식(CJ ONLYONE) 그대로
 
 화면을 띄워 두면 **5분마다 자동으로 최신 값을 확인**합니다. 탭을 다시 열거나
 네트워크가 복구됐을 때도 한 번 더 확인합니다.
@@ -57,13 +59,59 @@ ECOS_API_KEY=여기에_발급받은_키
 
 ---
 
+## 1-1. 주간 모니터링 탭 — 두 가지 방식
+
+"3. 주간 모니터링" 탭은 지난 일주일(어제까지 끝난 7일) 금융시장 뉴스를 Claude 가 읽고
+보고서 문장으로 정리해 보여준다. 만드는 방법은 둘이고, **파일이 있으면 늘 파일이 우선**이다.
+
+### 방식 A. Claude Code 로 만들기 (추천 — API 키·크레딧 불필요)
+
+Claude Code(구독에 포함)에서 프로젝트 폴더를 열고 **채팅 입력창에** `/weekly` 를 친다 — 폴더나 URL 이 아니라
+Claude Code 의 슬래시 명령이다. Claude Code 가 Bloomberg·국제금융센터를 검색해 `data/YYMMDD-weekly-brief.json`
+(YYMMDD = 실행일, 예 `261102-weekly-brief.json`)을 쓰고 검증까지 한다. 개발 서버가 떠 있으면 새로고침만 하면
+탭에 반영된다. 지난 파일은 지우지 않고 날짜별로 쌓이며, **탭은 파일명이 가장 늦은 것**을 보여준다.
+
+```
+/weekly              # 어제까지 끝난 7일
+/weekly 2026-10-30   # 종료일 지정
+```
+
+- 절차는 `.claude/skills/weekly/SKILL.md`, 보조 스크립트는 `scripts/weekly-indicators.mjs`(지표 주간 변동)와
+  `scripts/weekly-validate.mjs`(파일 검증).
+- 배포본(Vercel)에 반영하려면 그 파일을 커밋해 푸시해야 한다 (`next.config.ts` 가 `data/` 를 함수 번들에 포함한다).
+- 매주 자동으로 돌리려면 Claude Code 의 클라우드 routine(`/schedule`)에 "/weekly 실행 후 커밋·푸시"를 맡기면 된다.
+  저장소를 Claude 계정에 연결(<https://claude.ai/connect-github>)해야 한다.
+
+### 방식 B. 서버가 Claude API 로 만들기
+
+파일이 없고 `ANTHROPIC_API_KEY` 가 있으면 탭을 열 때 서버가 직접 만든다 (1~2분, 하루 한 번 캐시).
+API 크레딧은 claude.ai 구독과 **별도**로 <https://platform.claude.com> → Plans & Billing 에서 충전한다.
+
+```dotenv
+ANTHROPIC_API_KEY=sk-ant-…
+# (선택) 모델을 바꾸려면. 비우면 claude-opus-5-5
+WEEKLY_MODEL=
+```
+
+- 비용은 모델 토큰에 웹 검색 건당 $0.01 이 더해져 회당 수백 원 수준. "다시 생성" 버튼은 캐시를 비우고 새로 만든다.
+- 뉴스 출처 도메인은 `lib/weekly.ts` 의 `NEWS_DOMAINS` (기본: Bloomberg, 국제금융센터 + 보충용 연합뉴스, 연합인포맥스).
+- 안전 분류기가 요청을 거절하면 Anthropic 이 권장하는 다른 모델로 서버에서 자동 재시도한다
+  (`fallbacks: "default"`). 끄려면 `lib/weekly.ts` 의 `betas` / `fallbacks` 두 줄을 지우면 된다.
+
+### 공통
+
+- 둘 다 없으면 탭에 안내문만 뜨고 나머지 탭은 그대로 동작한다.
+- 모델 호출 없이 **레이아웃만 보려면** `http://localhost:3000/?tab=weekly&sample=1` — 참고 보고서 원문이 그대로 뜬다.
+
+---
+
 ## 1-2. Vercel 배포 시 환경변수
 
 **`.env.local` 은 `.gitignore` 에 걸려 있어 GitHub 에 올라가지 않습니다.**
 따라서 Vercel 에는 따로 넣어 줘야 합니다.
 
 1. <https://vercel.com> → 해당 프로젝트 → **`Settings`** → **`Environment Variables`**
-2. `Key` = `ECOS_API_KEY`, `Value` = 발급받은 인증키
+2. `Key` = `ECOS_API_KEY`, `Value` = 발급받은 인증키 (주간 모니터링을 쓰면 `ANTHROPIC_API_KEY` 도)
 3. 적용 환경은 **Production / Preview / Development 세 개 모두** 체크
 4. **`Save`**
 5. **`Deployments`** 탭 → 최신 배포의 `⋯` → **`Redeploy`**
@@ -208,13 +256,23 @@ LTTB 는 균등 간격 샘플링과 달리 1997년 환율 급등 같은 극값�
 ## 4. 구조
 
 ```
+.claude/skills/weekly/
+  SKILL.md                  Claude Code 의 /weekly — 뉴스를 읽고 data/weekly-brief.json 을 쓰는 절차
+data/
+  YYMMDD-weekly-brief.json  /weekly 가 실행일별로 쌓는 요약 — 가장 늦은 파일을 보여준다 (API 보다 우선)
+scripts/
+  weekly-indicators.mjs     /weekly 가 쓰는 지표 주간 변동 (순수 Node, ECOS·FRED)
+  weekly-validate.mjs       가장 최근 data/*-weekly-brief.json 검증
 app/
   page.tsx                  서버 컴포넌트 — 데이터를 받아 Dashboard 에 넘김
   layout.tsx, globals.css   디자인 토큰(색·타이포)
 app/api/series/
   route.ts                  브라우저 폴링용 엔드포인트 (?since= 로 증분 응답)
+app/api/weekly/
+  route.ts                  주간 모니터링 (GET 캐시 · POST 다시 생성 · ?sample=1 미리보기)
 components/
-  Dashboard.tsx             탭 전환 + 폴링 데이터 보유
+  Dashboard.tsx             탭 전환 + 폴링 데이터 보유 (?tab= 으로 탭 바로 열기)
+  WeeklyMonitor.tsx         주간 모니터링 상자 — 서식은 globals.css 의 .wk-* 규칙
   LiveStatus.tsx            자동 갱신 상태 표시
   IndicatorCard.tsx         종합지표 카드 한 장
   Sparkline.tsx             카드용 미니 추세선 (순수 SVG, 계단선 지원)
@@ -226,6 +284,10 @@ lib/
   downsample.ts             LTTB 해상도 조절
   summary.ts                카드 요약 계산 (서버/클라이언트 공용)
   useLiveDashboard.ts       5분 폴링 훅
+  weekly.ts                 ★ 주간 모니터링 — data/ 의 최근 파일 읽기, 없으면 Claude API 로 생성(지표 + 웹 검색 → JSON 검증 → 캐시)
+  weekly-types.ts           주간 모니터링 데이터 모양 (서버·브라우저 공용)
+  emphasis.ts               문장 안 {{파란 강조}} · (작은 보충설명) 분해
+  useWeeklyBrief.ts         탭을 열 때 한 번 받아오는 훅
   sources/ecos.ts           한국은행 ECOS 클라이언트 (페이지네이션 포함)
   sources/fred.ts           FRED 클라이언트 (JSON API / CSV 폴백)
   series.ts                 기간 필터 · 계열 병합 · 축 눈금 계산
@@ -245,6 +307,21 @@ ECOS 항목 코드는 아래로 조회할 수 있습니다.
 ```bash
 curl -s "https://ecos.bok.or.kr/api/StatisticItemList/$ECOS_API_KEY/json/kr/1/300/817Y002" | jq
 ```
+
+### 주간 모니터링 서식
+
+참고 보고서(Word)의 값을 그대로 옮겼다 — `app/globals.css` 의 `.wk-*` 규칙.
+
+| | 값 |
+|---|---|
+| 서체 | `fonts/CJ_ONLYONE_FONT/CJ_ONLYONE_300.ttf` (next/font/local, 이 탭에서만 내려받음) |
+| 굵기 | 300 파일 하나에 굵게(합성 볼드) — Word 와 같은 방식 |
+| 크기 | 헤드라인 14pt · 불릿 13pt · 괄호 보충설명 11pt(보통 굵기) · 줄간격 24pt |
+| 색 | 라벨·강조 파랑 `#0000CC`, 본문 검정 |
+| 배율 | `--wk-pt: 1.5px` (보고서 1pt 를 화면 1.5px 로) |
+
+문장 안의 `{{…}}` 는 파란 강조, `(…)` 는 작은 보충설명으로 그린다 (`lib/emphasis.ts`).
+모델에는 이 표기 규칙과 지난 보고서 원문을 서식 예시로 준다 (`lib/weekly.ts` 의 `SAMPLE_BRIEF`).
 
 ### 색
 

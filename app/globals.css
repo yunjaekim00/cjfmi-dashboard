@@ -62,3 +62,92 @@ button {
 .recharts-surface:focus {
   outline: none;
 }
+
+/*
+ * ─────────── 3. 주간 모니터링 ───────────
+ * 참고 보고서(Word)의 서식을 그대로 옮겼다:
+ *   서체 CJ ONLYONE 300 + 굵게 · 헤드라인 14pt · 불릿 13pt · 괄호 보충설명 11pt(보통 굵기)
+ *   줄간격 24pt 고정 · 파랑 #0000CC · 들여쓰기는 Word 의 twip 값을 pt 로 환산
+ * 보고서의 1pt 를 --wk-pt 만큼의 px 로 그린다. 1.5px 면 인쇄물 112% 배율쯤이라 화면에서 읽기 좋다.
+ */
+.wk-box {
+  --wk-pt: 1.5px;
+  --wk-blue: #0000cc;
+
+  font-family:
+    var(--font-cj-onlyone), "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  /* 폰트 파일은 300 굵기 하나뿐 — Word 가 그러듯 브라우저가 굵게를 합성한다. */
+  font-weight: 700;
+  font-synthesis: weight;
+  color: #000;
+
+  background: #fff;
+  border: 1.5px solid #b1b1b1;
+  border-radius: calc(var(--wk-pt) * 10);
+  padding: calc(var(--wk-pt) * 11) calc(var(--wk-pt) * 16) calc(var(--wk-pt) * 14);
+
+  line-height: calc(var(--wk-pt) * 24);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.wk-blue {
+  color: var(--wk-blue);
+}
+
+/* "(AI 클라우드社)", "(-860만배럴, 전주比)" 같은 보충설명 */
+.wk-note {
+  font-size: calc(var(--wk-pt) * 11);
+  font-weight: 300;
+}
+
+/*
+ * 헤드라인 "- [주간이슈] …"
+ * Word: 왼쪽 884twip(44.2pt) · 내어쓰기 924twip(46.2pt) · 탭 168twip(8.4pt)
+ *  → 첫 줄의 "-" 는 -2pt 에서, 본문은 8.4pt 에서 시작하고 둘째 줄부터 44.2pt 로 맞춘다.
+ */
+.wk-headline {
+  margin: 0;
+  font-size: calc(var(--wk-pt) * 14);
+  padding-left: calc(var(--wk-pt) * 44.2);
+  text-indent: calc(var(--wk-pt) * -46.2);
+}
+
+/* [시장반응] 앞 간격 (Word: 단락 앞 300twip = 15pt) */
+.wk-bullet + .wk-headline {
+  margin-top: calc(var(--wk-pt) * 15);
+}
+
+.wk-dash {
+  display: inline-block;
+  width: calc(var(--wk-pt) * 10.4);
+  text-indent: 0; /* 부모의 음수 text-indent 가 상속되지 않도록 */
+}
+
+/*
+ * 불릿 "· 코어위브…"
+ * Word: 왼쪽 1008twip(50.4pt) · 내어쓰기 840twip(42pt) · 탭 294twip(14.7pt)
+ *  → 마커는 8.4pt, 본문은 14.7pt 에서 시작하고 둘째 줄부터 50.4pt.
+ */
+.wk-bullet {
+  margin: calc(var(--wk-pt) * 4) 0 0;
+  font-size: calc(var(--wk-pt) * 13);
+  padding-left: calc(var(--wk-pt) * 50.4);
+  text-indent: calc(var(--wk-pt) * -42);
+}
+
+/* Word 의 Wingdings 작은 사각 불릿(U+F0A0)을 글꼴에 기대지 않고 직접 그린다 */
+.wk-dot {
+  display: inline-block;
+  width: calc(var(--wk-pt) * 6.3);
+  text-indent: 0;
+}
+
+.wk-dot::before {
+  content: "";
+  display: inline-block;
+  width: 0.26em;
+  height: 0.26em;
+  background: currentColor;
+  vertical-align: 0.24em;
+}

@@ -1,0 +1,194 @@
+{
+  "weekStart": "2026-10-26",
+  "weekEnd": "2026-11-01",
+  "generatedAt": "2026-11-01T19:49:38Z",
+  "model": "claude-code",
+  "issue": {
+    "headline": "美 빅테크 실적 실망(인텔·아마존)에 AI 투자 회수 우려 확산, 韓/美 증시 급락으로 10월 마감",
+    "points": [
+      "연준, 기준금리 동결(3.75~4.00%, 2명은 인상 주장)에도 경기 판단 상향·3분기 GDP 3.4%로 12월 인상 확률 80%대",
+      "이란·사우디 직접 대화 등 종전 협상 기대로 유가 주초 하락했으나 호르무즈 유조선 피격(30일)으로 중동 공급 불안 재부각"
+    ]
+  },
+  "reaction": {
+    "headline": "AI 투자 우려에 美 증시·금리 {{↓}}, KOSPI는 주중 6,000선 회복 후 급락, 유가는 종전 협상 기대에 {{↓}}",
+    "items": [
+      {
+        "category": "주가",
+        "text": "{{S&P500}}은 인텔(−29%)·아마존 실적 실망에 30일 1.8% 급락하며 주간 {{소폭 하락}}, {{KOSPI}}는 28일 6,000선 회복 후 美 기술주 여파로 30일 3.5% 급락(외국인 1.6조 순매도)에도 주간 {{상승}}"
+      },
+      {
+        "category": "금리",
+        "text": "{{美}}는 12월 인상 기대에도 기술주 급락發 안전자산 수요로 10년물 {{4.9%대 하락}}(주간 −6bp), {{韓}}도 위험회피 속 3년물 {{3.7%대 하락}}(−9bp)"
+      },
+      {
+        "category": "외환",
+        "text": "{{원달러}}는 위험회피 심리에 29일 1,336원대로 {{상승}}(주간 +10.7원), 30일 증시 급락에도 월말 수출업체 달러 매도(10월 수출 +93.7%)·WGBI 편입 기대로 1,334원 {{보합}}"
+      },
+      {
+        "category": "원자재",
+        "text": "{{WTI}}는 이란·사우디 대화 등 종전 협상 기대에 주초 101달러대로 밀린 뒤 호르무즈 유조선 피격에 104달러로 {{반등}}, 주간 {{5% 하락}}(10월 +14%), {{금}}은 {{1년래 최저}}"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "title": "[10.31] AI 투자 수익성에 대한 불안으로 美 기술주 급락, 신용시장 불안 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37659&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-10-31"
+    },
+    {
+      "title": "[10.30] 미국 9월 PCE 물가, 상승세 지속. 3/4분기 GDP 증가율은 1년래 최고 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37651&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "미국 연준 10월 FOMC 회의 결과 및 평가",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/economy/economyView?rpt_no=37647&mn=003002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-10-29"
+    },
+    {
+      "title": "Stock Market Today: Dow, S&P Live Updates for October 30, 2026",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-10-29/stock-market-today-dow-s-p-live-updates",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "Treasuries Head for Monthly Gain as Tech Giants Stumble",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-10-30/treasuries-extend-rally-with-global-peers-on-tech-stock-selloff",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "Oil prices fall after Iran supreme leader and top security official discuss conditions to end war",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/10/27/oil-today-iran-us-crude-wti-brent-trump.html",
+      "date": "2026-10-27"
+    },
+    {
+      "title": "Oil set for fourth monthly gain as Hormuz tanker attack highlights supply risks from war",
+      "publisher": "The Globe and Mail",
+      "url": "https://www.theglobeandmail.com/investing/article-oil-set-for-fourth-monthly-gain-as-hormuz-tanker-attack-highlights/",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "코스피, 외국인 1.6조 순매도에 하락…5730선 마감",
+      "publisher": "아시아경제",
+      "url": "https://view.asiae.co.kr/article/2026103016084854064",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "Won Firms to 1,334.3 as Month-End Exporter Selling Offsets 3.5% KOSPI Plunge",
+      "publisher": "서울경제",
+      "url": "https://en.sedaily.com/finance/2026/10/30/won-firms-to-13343-despite-35-percent-kospi-plunge-on-month",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "국고채 금리 일제히 하락…3년물 연 3.715%",
+      "publisher": "연합인포맥스(서플)",
+      "url": "https://supple.kr/news/cmvuomko5m4to13pa5a433q1i",
+      "date": "2026-10-30"
+    },
+    {
+      "title": "반도체가 끌어올린 韓수출…10월 수출 1153억달러 중 49%가 반도체",
+      "publisher": "아시아경제",
+      "url": "https://view.asiae.co.kr/article/2026110110285709510",
+      "date": "2026-11-01"
+    }
+  ],
+  "indicators": [
+    {
+      "id": "sp500",
+      "label": "S&P 500",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 7580.07
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 7623.68
+      }
+    },
+    {
+      "id": "ust10",
+      "label": "美 10년물",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 4.94
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 5
+      }
+    },
+    {
+      "id": "kospi",
+      "label": "KOSPI",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 5730.74
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 5550.3
+      }
+    },
+    {
+      "id": "ktb3",
+      "label": "국고채 3년",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 3.715
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 3.803
+      }
+    },
+    {
+      "id": "usdkrw",
+      "label": "원/달러",
+      "unit": "원",
+      "digits": 1,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 1335.3
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 1324.6
+      }
+    },
+    {
+      "id": "wti",
+      "label": "WTI",
+      "unit": "$",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-10-30",
+        "value": 104.12
+      },
+      "weekAgo": {
+        "date": "2026-10-23",
+        "value": 109.72
+      }
+    }
+  ]
+}

@@ -95,6 +95,8 @@ export const SERIES = {
   },
   // FRED 의 S&P 500 은 라이선스 때문에 최근 10년치만 제공된다.
   sp500: { source: "fred", label: "S&P 500", seriesId: "SP500", start: FRED_START },
+  // WTI 현물(쿠싱). 주간 모니터링의 원자재 항목에 쓴다 — EIA 집계라 며칠 늦게 올라온다.
+  wti: { source: "fred", label: "WTI", seriesId: "DCOILWTICO", start: FRED_START },
 } as const satisfies Record<string, SeriesDef>;
 
 export type SeriesId = keyof typeof SERIES;
@@ -153,11 +155,14 @@ export const CARDS: CardSpec[] = [
 
 // ───────────────────────── 차트 ─────────────────────────
 
-export type TabId = "overview" | "rates" | "fx";
+export type TabId = "overview" | "rates" | "fx" | "weekly";
+
+/** 차트를 두는 탭. 종합지표는 카드, 주간 모니터링은 뉴스 요약이라 차트가 없다. */
+export type ChartTabId = Extract<TabId, "rates" | "fx">;
 
 export type ChartSpec = {
   id: string;
-  tab: Exclude<TabId, "overview">;
+  tab: ChartTabId;
   title: string;
   /** y축 라벨 */
   unit: string;
@@ -222,6 +227,7 @@ export const TABS: Array<{ id: TabId; label: string }> = [
   { id: "overview", label: "0. 종합 지표" },
   { id: "rates", label: "1. 금리" },
   { id: "fx", label: "2. 환율" },
+  { id: "weekly", label: "3. 주간 모니터링" },
 ];
 
 /** 화면에 실제로 쓰이는 계열만 조회한다. */

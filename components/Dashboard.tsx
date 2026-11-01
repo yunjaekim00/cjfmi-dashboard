@@ -1,19 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 
 import { IndicatorCard } from "@/components/IndicatorCard";
 import { LiveStatus } from "@/components/LiveStatus";
 import { SeriesChart } from "@/components/SeriesChart";
 import { StatusNotice } from "@/components/StatusNotice";
+import { WeeklyMonitor } from "@/components/WeeklyMonitor";
 import { CHARTS, TABS, type TabId } from "@/lib/catalog";
 import { buildSummaries } from "@/lib/summary";
 import { useLiveDashboard } from "@/lib/useLiveDashboard";
+import { useWeeklyBrief } from "@/lib/useWeeklyBrief";
 import type { DashboardData } from "@/lib/types";
 
+/** 주소의 ?tab=weekly 같은 값. 서버에는 주소가 없으므로 그때는 null — 하이드레이션 뒤 브라우저 값으로 바뀐다. */
+function readRequestedTab(): TabId | null {
+  const requested = new URLSearchParams(window.location.search).get("tab");
+  return TABS.find((item) => item.id === requested)?.id ?? null;
+}
+
+const noSubscribe = () => () => {};
+
 export function Dashboard({ initial }: { initial: DashboardData }) {
-  const [tab, setTab] = useState<TabId>("overview");
+  const requestedTab = useSyncExternalStore(noSubscribe, readRequestedTab, () => null);
+  const [chosenTab, setTab] = useState<TabId | null>(null);
+  // 사용자가 누른 탭 > 주소로 지정한 탭 > 종합 지표
+  const tab: TabId = chosenTab ?? requestedTab ?? "overview";
   const { data, checkedAt, refreshing, error, refresh } = useLiveDashboard(initial);
+  // 주간 모니터링은 탭을 처음 열 때 받아오고, 그 뒤로는 탭을 오가도 들고 있는다.
+  const weekly = useWeeklyBrief(tab === "weekly");
 
   const indicators = useMemo(() => buildSummaries(data.series), [data.series]);
 
@@ -67,6 +82,10 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
           ) : (
             <p className="text-[13px] text-muted">표시할 지표가 없습니다.</p>
           )
+        ) : null}
+
+        {tab === "weekly" ? (
+          <WeeklyMonitor state={weekly.state} onRegenerate={weekly.regenerate} />
         ) : null}
 
         {charts.length ? (
