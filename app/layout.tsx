@@ -22,6 +22,19 @@ const cjOnlyOne = localFont({
   preload: false,
 });
 
+/**
+ * 400 굵기는 별도 서체 가족으로 둔다. 한 가족에 300·400 을 같이 넣으면 브라우저가 "굵게"를
+ * 400 에서 합성해 버려서, 보고서처럼 300 에 굵게를 얹은 소제목의 모양이 달라진다.
+ * "[ 주요국 금융시장 동향 ]" 제목과 차트의 사건 라벨에만 쓴다.
+ */
+const cjOnlyOne400 = localFont({
+  src: "../fonts/CJ_ONLYONE_FONT/CJ_ONLYONE_400.ttf",
+  weight: "400",
+  variable: "--font-cj-onlyone-400",
+  display: "swap",
+  preload: false,
+});
+
 export const metadata: Metadata = {
   title: "경제 지표 대시보드",
   description: "한국은행·FRED 데이터를 모아 보는 거시 경제 지표 대시보드",
@@ -29,7 +42,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className={`${geistSans.variable} ${cjOnlyOne.variable} h-full`}>
+    <html lang="ko" className={`${geistSans.variable} ${cjOnlyOne.variable} ${cjOnlyOne400.variable} h-full`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

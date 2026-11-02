@@ -68,17 +68,21 @@ ECOS_API_KEY=여기에_발급받은_키
 
 Claude Code(구독에 포함)에서 프로젝트 폴더를 열고 **채팅 입력창에** `/weekly` 를 친다 — 폴더나 URL 이 아니라
 Claude Code 의 슬래시 명령이다. Claude Code 가 Bloomberg·국제금융센터를 검색해 `data/YYMMDD-weekly-brief.json`
-(YYMMDD = 실행일, 예 `261102-weekly-brief.json`)을 쓰고 검증까지 한다. 개발 서버가 떠 있으면 새로고침만 하면
-탭에 반영된다. 지난 파일은 지우지 않고 날짜별로 쌓이며, **탭은 파일명이 가장 늦은 것**을 보여준다.
+(YYMMDD = 실행일, 예 `261102-weekly-brief.json`)을 쓰고 검증까지 한다. 같은 날짜로 `data/YYMMDD-weekly-market.json`
+(상자 아래 "[ 주요국 금융시장 동향 ]" 차트 6개·환율표 자료, FRED·ECOS)도 함께 만든다. 개발 서버가 떠 있으면
+새로고침만 하면 탭에 반영된다. 지난 파일은 지우지 않고 날짜별로 쌓이며, **탭은 파일명이 가장 늦은 것**을 보여준다.
 
 ```
 /weekly              # 어제까지 끝난 7일
 /weekly 2026-10-30   # 종료일 지정
 ```
 
-- 절차는 `.claude/skills/weekly/SKILL.md`, 보조 스크립트는 `scripts/weekly-indicators.mjs`(지표 주간 변동)와
-  `scripts/weekly-validate.mjs`(파일 검증).
-- 배포본(Vercel)에 반영하려면 그 파일을 커밋해 푸시해야 한다 (`next.config.ts` 가 `data/` 를 함수 번들에 포함한다).
+- 절차는 `.claude/skills/weekly/SKILL.md`, 보조 스크립트는 `scripts/weekly-indicators.mjs`(지표 주간 변동),
+  `scripts/weekly-market.mjs`(차트·환율표 자료), `scripts/weekly-validate.mjs`(파일 검증).
+- 배포본(Vercel)에 반영하려면 그 파일들을 커밋해 푸시해야 한다 (`next.config.ts` 가 `data/` 를 함수 번들에 포함한다).
+  차트 자료 캐시 `data/market-history.json` 도 같이 커밋하면 다른 컴퓨터에서도 증분으로 이어받는다.
+- 차트 아래 "엑셀 파일로 내려받기"(`/api/weekly/xlsx`)는 화면과 같은 차트 6개·환율표에 1년치 원자료 시트를 붙인
+  `.xlsx` 를 서버에서 만들어 준다 (라이브러리 없이 OOXML 을 직접 쓴다 — `lib/xlsx-market.ts`).
 - 매주 자동으로 돌리려면 Claude Code 의 클라우드 routine(`/schedule`)에 "/weekly 실행 후 커밋·푸시"를 맡기면 된다.
   저장소를 Claude 계정에 연결(<https://claude.ai/connect-github>)해야 한다.
 
@@ -260,8 +264,11 @@ LTTB 는 균등 간격 샘플링과 달리 1997년 환율 급등 같은 극값�
   SKILL.md                  Claude Code 의 /weekly — 뉴스를 읽고 data/weekly-brief.json 을 쓰는 절차
 data/
   YYMMDD-weekly-brief.json  /weekly 가 실행일별로 쌓는 요약 — 가장 늦은 파일을 보여준다 (API 보다 우선)
+  YYMMDD-weekly-market.json /weekly 가 같은 날짜로 쌓는 차트 6개(1년치)·환율표 자료
+  market-history.json       차트 자료 캐시 (14개월) — 실행마다 최근 2주치만 다시 받는다
 scripts/
   weekly-indicators.mjs     /weekly 가 쓰는 지표 주간 변동 (순수 Node, ECOS·FRED)
+  weekly-market.mjs         /weekly 가 쓰는 차트·환율표 자료 수집 (FRED·ECOS, --set 으로 종가 덮어쓰기)
   weekly-validate.mjs       가장 최근 data/*-weekly-brief.json 검증
 app/
   page.tsx                  서버 컴포넌트 — 데이터를 받아 Dashboard 에 넘김
@@ -270,9 +277,11 @@ app/api/series/
   route.ts                  브라우저 폴링용 엔드포인트 (?since= 로 증분 응답)
 app/api/weekly/
   route.ts                  주간 모니터링 (GET 캐시 · POST 다시 생성 · ?sample=1 미리보기)
+  xlsx/route.ts             "주요국 금융시장 동향" 엑셀 내려받기
 components/
   Dashboard.tsx             탭 전환 + 폴링 데이터 보유 (?tab= 으로 탭 바로 열기)
   WeeklyMonitor.tsx         주간 모니터링 상자 — 서식은 globals.css 의 .wk-* 규칙
+  MarketPanel.tsx           "[ 주요국 금융시장 동향 ]" 차트 6개(SVG)·환율표·엑셀 버튼 — 서식은 .mk-* 규칙
   LiveStatus.tsx            자동 갱신 상태 표시
   IndicatorCard.tsx         종합지표 카드 한 장
   Sparkline.tsx             카드용 미니 추세선 (순수 SVG, 계단선 지원)
@@ -286,6 +295,9 @@ lib/
   useLiveDashboard.ts       5분 폴링 훅
   weekly.ts                 ★ 주간 모니터링 — data/ 의 최근 파일 읽기, 없으면 Claude API 로 생성(지표 + 웹 검색 → JSON 검증 → 캐시)
   weekly-types.ts           주간 모니터링 데이터 모양 (서버·브라우저 공용)
+  market-shared.ts          ★ 차트·환율표 정의와 계산 (창·눈금·y축·달러인덱스 산식) — 스크립트·브라우저·엑셀이 공유
+  market.ts                 data/YYMMDD-weekly-market.json 읽기·검증 (서버 전용)
+  xlsx-market.ts            엑셀 파일 생성 — 분산형 차트 6개 + 환율표 + 원자료 시트 (OOXML 직접 작성)
   emphasis.ts               문장 안 {{파란 강조}} · (작은 보충설명) 분해
   useWeeklyBrief.ts         탭을 열 때 한 번 받아오는 훅
   sources/ecos.ts           한국은행 ECOS 클라이언트 (페이지네이션 포함)
@@ -322,6 +334,45 @@ curl -s "https://ecos.bok.or.kr/api/StatisticItemList/$ECOS_API_KEY/json/kr/1/30
 
 문장 안의 `{{…}}` 는 파란 강조, `(…)` 는 작은 보충설명으로 그린다 (`lib/emphasis.ts`).
 모델에는 이 표기 규칙과 지난 보고서 원문을 서식 예시로 준다 (`lib/weekly.ts` 의 `SAMPLE_BRIEF`).
+
+### 주요국 금융시장 동향 (차트 6개 + 환율표)
+
+상자 아래 "[ 주요국 금융시장 동향 ]" 은 참고 보고서의 Excel 차트를 옮긴 것이다 — 정의·계산은 `lib/market-shared.ts`,
+그리기는 `components/MarketPanel.tsx`(SVG)와 `app/globals.css` 의 `.mk-*` 규칙.
+
+| | 값 |
+|---|---|
+| 차트 | S&P500 · KOSPI · 원달러 환율 · 美 국채 10년물 금리 · 韓 국채 10년물 금리 · WTI (3×2, 소제목 바 `#D4D4D4`) |
+| 기간 | 기준일(`/weekly` 실행일)까지 꼭 1년. x 눈금은 1년 전 다음 날부터 석 달씩(말일 넘지 않음) + 기준일 — 11/2 면 11/3 · 2/3 · 5/3 · 8/3 · 11/2 |
+| y축 | 1년치 값에 맞춰 자동 — 눈금 간격(1·2·5 배수)을 먼저 정하고 아래위를 조금 여유 있게 자른다 |
+| 표시 | 오른쪽에 최근치와 지난주 같은 요일 대비(가격·지수 %, 금리 %p). 세로 연파랑 띠 `#DFE5F1` = 이스라엘 이란 공습(26/2/28), `MARKET_EVENT` |
+| 색 | 선·숫자 `#3464B6`, 눈금 글자 `#4F4F4F`, 단위·사건 라벨 `#757575` — 보고서 이미지에서 뽑은 값 |
+| 서체 | 본문 CJ ONLYONE 300, 소제목은 300 에 굵게, 제목 "[ 주요국 금융시장 동향 ]" 과 사건 라벨만 400 (`fonts/…/CJ_ONLYONE_400.ttf`) |
+| 환율표 | 원화 · 달러화 · 유로화 · 엔화 · 위안화 · 베트남 동. 한국은행 고시(08:30) 기준, 전쟁직전(2/27)比 절상(+)·절하(−) |
+
+자료는 모두 이미 쓰던 두 출처에서 온다 — 추가 API 키가 필요 없다.
+
+| 계열 | 출처 | 비고 |
+|---|---|---|
+| S&P500 · 美 10년물 · WTI | FRED `SP500` · `DGS10` · `DCOILWTICO` | 집계가 1~7일 늦다. `/weekly` 가 기사에서 확인한 종가를 `--set` 으로 넣어 메운다 |
+| KOSPI · 국고채 10년 · 원/달러 | ECOS `802Y001` · `817Y002/010210000` · `731Y001/0000001` | 원/달러는 매매기준율(08:30 고시) |
+| 달러화(달러인덱스) | ECOS `731Y002` 의 유로·엔·파운드·캐나다달러·크로나·스위스프랑 | ICE DXY 산식(가중 기하평균)으로 계산 — 보고서의 10/20 값 102.0 과 일치 |
+| 유로 · 엔 · 베트남 동 | ECOS `731Y002` `0000003` · `0000002` · `0000035` | |
+| 위안 | 원/달러 ÷ 원/위안(`731Y001/0000053`) | ECOS 의 위안/달러 직접 계열은 2016년에 끊겨 교차환율로 |
+
+`scripts/weekly-market.mjs` 가 `data/market-history.json` 에 14개월치를 쌓아 두고 실행마다 마지막 관측일 2주 전부터만
+다시 받는다. 결과는 `data/YYMMDD-weekly-market.json` 이고 서버(`lib/market.ts`)는 요약문과 같은 날짜 접두사의 파일을 붙여 준다.
+
+```bash
+node scripts/weekly-market.mjs                                   # 기준일 = 오늘
+node scripts/weekly-market.mjs --as-of 2026-11-02                # 기준일 지정
+node scripts/weekly-market.mjs --set sp500=2026-10-30:7580.07    # FRED 에 아직 없는 종가를 넣는다 (출처에 올라오면 출처가 이긴다)
+node scripts/weekly-market.mjs --offline                         # 받지 않고 캐시로만
+```
+
+"엑셀 파일로 내려받기"(`/api/weekly/xlsx`, `lib/xlsx-market.ts`)는 같은 자료로 `.xlsx` 를 만든다 — 시트 1 은 화면과 같은
+배치(소제목 바, 네이티브 분산형 차트 6개, 환율표), 시트 2 는 차트마다 날짜·값 두 열의 1년치 원자료. 차트의 x 눈금과 공습 띠는 보조 계열(데이터 레이블),
+최근치·사건 라벨은 차트 위 텍스트 상자로 만들었으므로 엑셀에서 그대로 끌어 옮기거나 고칠 수 있다.
 
 ### 색
 

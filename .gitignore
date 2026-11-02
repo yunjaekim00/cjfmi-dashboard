@@ -45,10 +45,11 @@ next-env.d.ts
 *.docx
 ~$*
 
-# 서체: 실제로 쓰는 CJ ONLYONE 300 만 올린다 (다른 굵기도 쓰게 되면 아래에 !fonts/…/CJ_ONLYONE_500.ttf 식으로 추가)
+# 서체: 실제로 쓰는 CJ ONLYONE 300(본문)·400(차트 제목) 만 올린다 (다른 굵기도 쓰게 되면 아래에 !fonts/…/CJ_ONLYONE_500.ttf 식으로 추가)
 fonts/*.zip
 fonts/CJ_ONLYONE_FONT/*
 !fonts/CJ_ONLYONE_FONT/CJ_ONLYONE_300.ttf
+!fonts/CJ_ONLYONE_FONT/CJ_ONLYONE_400.ttf
 
 # Claude Code 개인 설정 (프로젝트 스킬 .claude/skills/ 는 올린다)
 .claude/settings.local.json

@@ -49,13 +49,15 @@ async function fetchFred(seriesId, since) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
   const lines = (await res.text()).trim().split(/\r?\n/).slice(1);
+  // 휴일은 값이 "" 또는 "." 로 온다 — Number("") 은 0 이라 숫자 검사로는 걸러지지 않으니 문자열에서 거른다.
   return lines
     .map((line) => {
-      const [date, raw] = line.split(",");
-      const value = Number(raw);
-      return { date, value };
+      const [date, raw = ""] = line.split(",");
+      return { date, raw: raw.trim() };
     })
-    .filter((p) => p.date?.length === 10 && Number.isFinite(p.value));
+    .filter((p) => p.date?.length === 10 && p.raw !== "" && p.raw !== ".")
+    .map((p) => ({ date: p.date, value: Number(p.raw) }))
+    .filter((p) => Number.isFinite(p.value));
 }
 
 async function fetchEcos(statCode, itemCode1, since, until) {

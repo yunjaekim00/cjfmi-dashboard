@@ -1,0 +1,683 @@
+import { strToU8, zipSync } from "fflate";
+
+import {
+  CHART_SPECS,
+  FX_SPECS,
+  annotationBelow,
+  dateFraction,
+  formatSignedPct,
+  formatTickDate,
+  formatValue,
+  formatWeekChange,
+  marketWindow,
+  yScale,
+  type ChartSpec,
+  type MarketChart,
+  type WeeklyMarket,
+} from "@/lib/market-shared";
+
+/*
+ * "주요국 금융시장 동향"을 엑셀 파일로 만든다. (서버 전용)
+ *
+ * 라이브러리 없이 OOXML 조각을 직접 쓴다 — 차트(DrawingML)를 만들어 주는 JS 라이브러리가 마땅치 않아서다.
+ *   시트 1 "주요국 금융시장 동향": 화면과 같은 배치 — 제목, 소제목 바, 차트 6개, 환율표, 각주
+ *   시트 2 "데이터": 차트마다 날짜·값 두 열 (1년치)
+ * 차트는 엑셀 네이티브 분산형(직선) 차트다. 선형 차트는 모든 계열이 같은 날짜 축을 공유하는데
+ * 계열마다 거래일이 달라서, 날짜를 x 값으로 갖는 분산형을 쓴다. 보고서의 생김새는 계열 세 개로 만든다:
+ *   ① 공습 표시 띠(연파랑 굵은 세로선) ② 지표 선 ③ x 눈금 라벨(투명한 점 + 데이터 레이블)
+ * 최근치·전주비와 사건 라벨은 차트 위에 얹은 텍스트 상자(userShapes)다 — 데이터 레이블은 Excel 이
+ * 사용자 지정 글을 좁은 기본 상자 안에서 줄바꿈해 버려서(크기 지정도 무시) 긴 글에는 쓸 수 없었다.
+ */
+
+const FONT_300 = "CJ ONLYONE 300";
+const FONT_400 = "CJ ONLYONE 400";
+const BLUE = "3464B6";
+const BAND = "DFE5F1";
+const TICK = "4F4F4F";
+const NOTE = "757575";
+const BAR = "D4D4D4";
+const BAR_SOFT = "DADADA";
+
+const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+const NS_C = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+const NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const NS_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing";
+const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+/** 시트 1 배치: 21열 — 차트 한 칸이 7열, 환율표는 머리 3열 + 통화 6개 × 3열 */
+const COLS = 21;
+const BLOCK = 7;
+const COL_WIDTH = 5.71; // ≈ 45px → 차트 한 칸 315px
+const CHART_ROWS = 10; // 10 × 15pt(20px) = 200px — 7열(≈360px)과 합쳐 화면·보고서와 같은 1.8:1
+const ROW_TITLE = 1;
+const ROW_BAR_1 = 2;
+const ROW_BAR_2 = ROW_BAR_1 + 1 + CHART_ROWS; // 20
+const ROW_FX = ROW_BAR_2 + 1 + CHART_ROWS + 1; // 39
+const ROW_NOTE = ROW_FX + 4; // 43
+
+const DATA_SHEET = "데이터";
+
+/** 차트 안 플롯 영역(차트 크기 대비 비율) — 화면 SVG 의 여백과 같은 비율 */
+const PLOT_X = 0.21;
+const PLOT_Y = 0.13;
+const PLOT_W = 0.745;
+const PLOT_H = 0.65;
+
+// ───────────────────────── 작은 도구 ─────────────────────────
+
+function esc(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** "2026-11-02" → 엑셀 날짜 일련번호 (1899-12-30 기준) */
+function serial(date: string): number {
+  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86_400_000);
+}
+
+/** 0 → "A", 26 → "AA" */
+function col(index: number): string {
+  let name = "";
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    name = String.fromCharCode(65 + ((n - 1) % 26)) + name;
+  }
+  return name;
+}
+
+function cellText(ref: string, text: string, style: number): string {
+  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${esc(text)}</t></is></c>`;
+}
+
+function cellNumber(ref: string, value: number, style: number): string {
+  return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+}
+
+function cellEmpty(ref: string, style: number): string {
+  return `<c r="${ref}" s="${style}"/>`;
+}
+
+// ───────────────────────── 스타일 ─────────────────────────
+
+/** cellXfs 의 순서. 아래 stylesXml 과 맞춘다. */
+const STYLE = {
+  normal: 0,
+  title: 1,
+  bar: 2,
+  fxHead: 3,
+  fxHeadFirst: 4,
+  fxLabel: 5,
+  fxValue: 6,
+  date: 7,
+  note: 8,
+  dataHead: 9,
+} as const;
+
+function stylesXml(): string {
+  const font = (sz: number, color: string, name: string, bold = false) =>
+    `<font>${bold ? "<b/>" : ""}<sz val="${sz}"/><color rgb="FF${color}"/><name val="${esc(name)}"/><family val="2"/></font>`;
+  const side = (tag: string, style: string) => `<${tag} style="${style}"><color rgb="FF000000"/></${tag}>`;
+  const border = (top: string, rest = "thin") =>
+    `<border>${side("left", rest)}${side("right", rest)}${side("top", top)}${side("bottom", rest)}<diagonal/></border>`;
+  const xf = (fontId: number, fillId: number, borderId: number, numFmtId = 0, center = true, wrap = false) =>
+    `<xf numFmtId="${numFmtId}" fontId="${fontId}" fillId="${fillId}" borderId="${borderId}" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyNumberFormat="1" applyAlignment="1">` +
+    `<alignment horizontal="${center ? "center" : "left"}" vertical="center"${wrap ? ' wrapText="1"' : ""}/></xf>`;
+
+  return (
+    XML +
+    `<styleSheet xmlns="${NS_MAIN}">` +
+    `<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts>` +
+    `<fonts count="6">` +
+    font(10, "000000", FONT_300) + // 0 본문
+    font(11, "000000", FONT_300, true) + // 1 소제목(굵게)
+    font(14, "000000", FONT_400) + // 2 제목
+    font(9, NOTE, FONT_300) + // 3 각주
+    font(9, "000000", FONT_300) + // 4 환율표 머리칸
+    font(10, "000000", FONT_300, true) + // 5 데이터 시트 머리
+    `</fonts>` +
+    `<fills count="4">` +
+    `<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>` +
+    `<fill><patternFill patternType="solid"><fgColor rgb="FF${BAR}"/><bgColor indexed="64"/></patternFill></fill>` +
+    `<fill><patternFill patternType="solid"><fgColor rgb="FF${BAR_SOFT}"/><bgColor indexed="64"/></patternFill></fill>` +
+    `</fills>` +
+    `<borders count="3">` +
+    `<border><left/><right/><top/><bottom/><diagonal/></border>` + // 0 없음
+    border("thin") + // 1 가는 선
+    border("medium") + // 2 환율표 머리 (위만 굵게)
+    `</borders>` +
+    `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
+    `<cellXfs count="10">` +
+    `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` + // 0 normal
+    xf(2, 0, 0) + // 1 title
+    xf(1, 2, 1) + // 2 bar
+    xf(1, 2, 2) + // 3 fxHead
+    xf(4, 2, 2) + // 4 fxHeadFirst
+    xf(4, 3, 1) + // 5 fxLabel
+    xf(0, 0, 1) + // 6 fxValue
+    xf(0, 0, 0, 164) + // 7 date
+    xf(3, 0, 0, 0, false) + // 8 note
+    xf(5, 0, 1) + // 9 dataHead
+    `</cellXfs>` +
+    `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>` +
+    `</styleSheet>`
+  );
+}
+
+// ───────────────────────── 차트 XML ─────────────────────────
+
+type RunStyle = { sz: number; color: string; font?: string };
+
+function run(text: string, { sz, color, font = FONT_300 }: RunStyle): string {
+  return (
+    `<a:r><a:rPr lang="ko-KR" sz="${sz}" b="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
+    `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`
+  );
+}
+
+function para(runs: string, align: "l" | "ctr" | "r" = "ctr", sz = 900): string {
+  // defRPr 의 크기를 run 과 맞춘다 — Excel 은 이 기본 크기로 레이블 상자를 재므로, 비워 두면 큰 글자가 상자를 넘쳐 줄바꿈된다
+  return `<a:p><a:pPr algn="${align}"><a:defRPr sz="${sz}" b="0"/></a:pPr>${runs}</a:p>`;
+}
+
+function richText(paragraphs: string): string {
+  // 데이터 레이블 상자가 글에 맞게 늘어나도록 (wrap="none" 만으로는 Excel 이 기본 너비 안에서 줄을 바꾼다)
+  return `<c:tx><c:rich><a:bodyPr wrap="none"><a:spAutoFit/></a:bodyPr><a:lstStyle/>${paragraphs}</c:rich></c:tx>`;
+}
+
+/** 글자 기본값(축 눈금 등) */
+function textProps(sz: number, color: string, font = FONT_300): string {
+  return (
+    `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${sz}" b="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
+    `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:defRPr></a:pPr><a:endParaRPr lang="ko-KR"/></a:p></c:txPr>`
+  );
+}
+
+function numLit(values: number[]): string {
+  return (
+    `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
+    values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("") +
+    `</c:numLit>`
+  );
+}
+
+function numRef(formula: string): string {
+  return `<c:numRef><c:f>${esc(formula)}</c:f></c:numRef>`;
+}
+
+const SHOW_NONE =
+  `<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/>` +
+  `<c:showPercent val="0"/><c:showBubbleSize val="0"/>`;
+
+/** 점 하나에 붙는 짧은 데이터 레이블 (x 눈금용). 긴 글은 Excel 이 좁은 상자에서 줄바꿈하므로 텍스트 상자(textBox)를 쓴다. */
+function dataLabel(idx: number, tx: string, pos: "t" | "b" | "l" | "r" | "ctr"): string {
+  return (
+    `<c:dLbl><c:idx val="${idx}"/>${tx}<c:dLblPos val="${pos}"/>` +
+    `<c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/>` +
+    `<c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbl>`
+  );
+}
+
+function dataLabels(labels: string): string {
+  return labels ? `<c:dLbls>${labels}${SHOW_NONE}</c:dLbls>` : "";
+}
+
+function line(width: number, color: string): string {
+  return `<c:spPr><a:ln w="${width}" cap="rnd"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
+}
+
+const NO_LINE = `<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>`;
+const NO_MARKER = `<c:marker><c:symbol val="none"/></c:marker>`;
+
+type Series = { idx: number; name: string; spPr: string; dLbls: string; xVal: string; yVal: string };
+
+function seriesXml({ idx, name, spPr, dLbls, xVal, yVal }: Series): string {
+  return (
+    `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:v>${esc(name)}</c:v></c:tx>` +
+    spPr +
+    NO_MARKER +
+    dLbls +
+    `<c:xVal>${xVal}</c:xVal><c:yVal>${yVal}</c:yVal><c:smooth val="0"/></c:ser>`
+  );
+}
+
+function valueAxis(
+  id: number,
+  crossId: number,
+  pos: "b" | "l",
+  min: number,
+  max: number,
+  options: { numFmt: string; labels: boolean; axisLine: boolean; majorUnit?: number }
+): string {
+  return (
+    `<c:valAx><c:axId val="${id}"/>` +
+    `<c:scaling><c:orientation val="minMax"/><c:max val="${max}"/><c:min val="${min}"/></c:scaling>` +
+    `<c:delete val="0"/><c:axPos val="${pos}"/>` +
+    `<c:numFmt formatCode="${esc(options.numFmt)}" sourceLinked="0"/>` +
+    `<c:majorTickMark val="none"/><c:minorTickMark val="none"/>` +
+    `<c:tickLblPos val="${options.labels ? "nextTo" : "none"}"/>` +
+    (options.axisLine
+      ? `<c:spPr><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></c:spPr>`
+      : NO_LINE) +
+    textProps(900, TICK) +
+    `<c:crossAx val="${crossId}"/><c:crosses val="min"/><c:crossBetween val="midCat"/>` +
+    (options.majorUnit ? `<c:majorUnit val="${options.majorUnit}"/>` : "") +
+    `</c:valAx>`
+  );
+}
+
+/** 차트 위 텍스트 상자 하나 (좌표는 차트 크기 대비 비율). wrap="none" 이라 상자가 좁아도 줄바꿈하지 않는다. */
+function textBox(box: { x0: number; y0: number; x1: number; y1: number }, paragraphs: string): string {
+  const f = (v: number) => v.toFixed(4);
+  return (
+    `<cdr:relSizeAnchor><cdr:from><cdr:x>${f(box.x0)}</cdr:x><cdr:y>${f(box.y0)}</cdr:y></cdr:from>` +
+    `<cdr:to><cdr:x>${f(box.x1)}</cdr:x><cdr:y>${f(box.y1)}</cdr:y></cdr:to>` +
+    `<cdr:sp macro="" textlink=""><cdr:nvSpPr><cdr:cNvPr id="${nextShapeId++}" name="TextBox"/><cdr:cNvSpPr txBox="1"/></cdr:nvSpPr>` +
+    `<cdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></cdr:spPr>` +
+    `<cdr:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"/><a:lstStyle/>${paragraphs}</cdr:txBody>` +
+    `</cdr:sp></cdr:relSizeAnchor>`
+  );
+}
+
+let nextShapeId = 2;
+
+function userShapesXml(shapes: string[]): string {
+  return (
+    XML +
+    `<c:userShapes xmlns:c="${NS_C}" xmlns:a="${NS_A}" xmlns:cdr="http://schemas.openxmlformats.org/drawingml/2006/chartDrawing">` +
+    shapes.join("") +
+    `</c:userShapes>`
+  );
+}
+
+/** 차트 하나. dataCol 은 시트 2 에서 이 차트의 날짜 열 번호(0 기준) — 값은 그 다음 열. */
+function chartXml(
+  spec: ChartSpec,
+  chart: MarketChart,
+  market: WeeklyMarket,
+  dataCol: number,
+  first: boolean
+): { chart: string; shapes: string | null } {
+  const n = chart.points.length;
+  const dateRef = `'${DATA_SHEET}'!$${col(dataCol)}$2:$${col(dataCol)}$${n + 1}`;
+  const valueRef = `'${DATA_SHEET}'!$${col(dataCol + 1)}$2:$${col(dataCol + 1)}$${n + 1}`;
+
+  const { windowStart, ticks } = marketWindow(market.asOf);
+  const scale = yScale(chart.points.map((p) => p.value));
+  const xMin = serial(windowStart);
+  // 축은 기준일보다 45일쯤 더 오른쪽까지 — 마지막 점 위아래에 붙는 최근치 레이블이 차트 밖으로 잘리지 않게
+  const xMax = serial(market.asOf) + 45;
+  const yFormat = scale.decimals === 0 ? "#,##0" : `0.${"0".repeat(scale.decimals)}`;
+
+  // ① 사건 띠 — 같은 날짜의 아래·위 두 점을 굵은 연파랑 선으로 잇는다
+  const eventSerial = serial(market.event.date);
+  const eventInWindow = market.event.date >= windowStart && market.event.date <= market.asOf;
+  const band: Series | null = eventInWindow
+    ? {
+        idx: 0,
+        name: market.event.label,
+        spPr: line(57150, BAND),
+        dLbls: "",
+        xVal: numLit([eventSerial, eventSerial]),
+        yVal: numLit([scale.lo, scale.hi]),
+      }
+    : null;
+
+  // ② 지표 선
+  const main: Series = {
+    idx: 1,
+    name: spec.title,
+    spPr: line(19050, BLUE),
+    dLbls: "",
+    xVal: numRef(dateRef),
+    yVal: numRef(valueRef),
+  };
+
+  // 텍스트 상자 — 최근치·전주비(오른쪽 끝, 화면과 같은 규칙으로 선의 빈 쪽), 첫 차트엔 사건 라벨(띠 오른쪽 위)
+  const shapes: string[] = [];
+  const { latest, weekAgo } = chart;
+  if (latest) {
+    const below = annotationBelow(chart.points, windowStart, market.asOf, scale.lo, scale.hi);
+    const yFrac = (value: number) => PLOT_Y + ((scale.hi - value) / (scale.hi - scale.lo)) * PLOT_H;
+    const recent = chart.points
+      .filter((p) => dateFraction(p.date, windowStart, market.asOf) >= 0.7)
+      .map((p) => p.value);
+    const anchor = recent.length ? (below ? Math.min(...recent) : Math.max(...recent)) : latest.value;
+    const change = weekAgo ? `(${first ? "전주비 " : ""}${formatWeekChange(spec, latest, weekAgo)})` : "";
+    const h = change ? 0.22 : 0.13;
+    // 아래에 둘 때는 x축 선(PLOT_Y + PLOT_H) 위에서 끝나게, 위에 둘 때는 차트 위쪽 가장자리 안에
+    const top = below
+      ? Math.min(PLOT_Y + PLOT_H - h - 0.01, yFrac(anchor) + 0.03)
+      : Math.max(0.02, yFrac(anchor) - (h + 0.03));
+    shapes.push(
+      textBox(
+        { x0: 0.45, y0: top, x1: PLOT_X + PLOT_W, y1: top + h },
+        para(run(formatValue(spec, latest.value), { sz: 1400, color: BLUE }), "r", 1400) +
+          (change ? para(run(change, { sz: 900, color: BLUE }), "r", 900) : "")
+      )
+    );
+  }
+  if (first && eventInWindow) {
+    const eventX = PLOT_X + PLOT_W * ((eventSerial - xMin) / (xMax - xMin));
+    shapes.push(
+      textBox(
+        { x0: eventX + 0.012, y0: PLOT_Y - 0.01, x1: Math.min(0.99, eventX + 0.5), y1: PLOT_Y + 0.17 },
+        para(run(market.event.label, { sz: 800, color: NOTE, font: FONT_400 }), "l", 800) +
+          para(run(market.event.note, { sz: 800, color: NOTE, font: FONT_400 }), "l", 800)
+      )
+    );
+  }
+
+  // ③ x 눈금 라벨 — 축 아래에 "11/3 · 2/3 · …" 를 정확한 날짜에 찍기 위한 투명한 점들
+  const tickSeries: Series = {
+    idx: 2,
+    name: "눈금",
+    spPr: NO_LINE,
+    dLbls: dataLabels(
+      ticks
+        .map((tick, i) => dataLabel(i, richText(para(run(formatTickDate(tick), { sz: 900, color: TICK }), "ctr", 900)), "b"))
+        .join("")
+    ),
+    xVal: numLit(ticks.map(serial)),
+    yVal: numLit(ticks.map(() => scale.lo)),
+  };
+
+  const plotLayout =
+    `<c:layout><c:manualLayout><c:layoutTarget val="inner"/><c:xMode val="edge"/><c:yMode val="edge"/>` +
+    `<c:x val="${PLOT_X}"/><c:y val="${PLOT_Y}"/><c:w val="${PLOT_W}"/><c:h val="${PLOT_H}"/></c:manualLayout></c:layout>`;
+
+  const title =
+    `<c:title>${richText(para(run(spec.unitLabel, { sz: 800, color: NOTE }), "l", 800))}` +
+    `<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.01"/><c:y val="0.02"/></c:manualLayout></c:layout>` +
+    `<c:overlay val="1"/></c:title>`;
+
+
+  const chartXmlText =
+    XML +
+    `<c:chartSpace xmlns:c="${NS_C}" xmlns:a="${NS_A}" xmlns:r="${NS_R}">` +
+    `<c:date1904 val="0"/><c:lang val="ko-KR"/><c:roundedCorners val="0"/>` +
+    `<c:chart>${title}<c:autoTitleDeleted val="0"/><c:plotArea>${plotLayout}` +
+    `<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>` +
+    (band ? seriesXml(band) : "") +
+    seriesXml(main) +
+    seriesXml(tickSeries) +
+    `<c:axId val="10"/><c:axId val="20"/></c:scatterChart>` +
+    valueAxis(10, 20, "b", xMin, xMax, { numFmt: "m/d", labels: false, axisLine: true }) +
+    valueAxis(20, 10, "l", scale.lo, scale.hi, { numFmt: yFormat, labels: true, axisLine: false, majorUnit: scale.step }) +
+    `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>` +
+    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>` +
+    `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></c:spPr>` +
+    textProps(900, "000000") +
+    (shapes.length ? `<c:userShapes r:id="rId1"/>` : "") +
+    `</c:chartSpace>`;
+
+  return { chart: chartXmlText, shapes: shapes.length ? userShapesXml(shapes) : null };
+}
+
+// ───────────────────────── 시트 ─────────────────────────
+
+type Placed = { spec: ChartSpec; chart: MarketChart; index: number; block: number; barRow: number };
+
+function drawingXml(placed: Placed[]): string {
+  const anchors = placed
+    .map(({ index, block, barRow }, i) => {
+      const fromCol = block * BLOCK;
+      const fromRow = barRow; // 0 기준 행 번호 = 소제목 바 다음 행
+      return (
+        `<xdr:twoCellAnchor editAs="oneCell">` +
+        `<xdr:from><xdr:col>${fromCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${fromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
+        `<xdr:to><xdr:col>${fromCol + BLOCK}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${fromRow + CHART_ROWS}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+        `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${index + 2}" name="Chart ${index + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
+        `<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>` +
+        `<a:graphic><a:graphicData uri="${NS_C}"><c:chart xmlns:c="${NS_C}" xmlns:r="${NS_R}" r:id="rId${i + 1}"/></a:graphicData></a:graphic>` +
+        `</xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`
+      );
+    })
+    .join("");
+  return XML + `<xdr:wsDr xmlns:xdr="${NS_XDR}" xmlns:a="${NS_A}">${anchors}</xdr:wsDr>`;
+}
+
+function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
+  const rows = new Map<number, string[]>();
+  const merges: string[] = [];
+  const put = (row: number, xml: string) => {
+    rows.set(row, [...(rows.get(row) ?? []), xml]);
+  };
+  const putMerged = (row: number, fromCol: number, toCol: number, text: string, style: number) => {
+    put(row, cellText(`${col(fromCol)}${row}`, text, style));
+    for (let c = fromCol + 1; c <= toCol; c += 1) put(row, cellEmpty(`${col(c)}${row}`, style));
+    merges.push(`${col(fromCol)}${row}:${col(toCol)}${row}`);
+  };
+
+  // 제목
+  putMerged(ROW_TITLE, 0, COLS - 1, "[ 주요국 금융시장 동향 ]", STYLE.title);
+
+  // 소제목 바 — 자료가 없는 칸에도 바는 둔다
+  CHART_SPECS.forEach((spec, index) => {
+    const block = index % 3;
+    const barRow = index < 3 ? ROW_BAR_1 : ROW_BAR_2;
+    putMerged(barRow, block * BLOCK, block * BLOCK + BLOCK - 1, spec.title, STYLE.bar);
+    if (!placed.some((p) => p.index === index)) {
+      const chart = market.charts.find((c) => c.id === spec.id);
+      putMerged(barRow + 2, block * BLOCK, block * BLOCK + BLOCK - 1, chart?.error ?? "자료 없음", STYLE.note);
+    }
+  });
+
+  // 환율표
+  const items = new Map(market.fx.items.map((item) => [item.id, item]));
+  const fxAsOf = market.fx.items
+    .map((item) => item.latest?.date)
+    .filter((date): date is string => Boolean(date))
+    .sort()
+    .at(-1);
+  putMerged(ROW_FX, 0, 2, "(+ 절상, − 절하)", STYLE.fxHeadFirst);
+  putMerged(ROW_FX + 1, 0, 2, fxAsOf ? `${formatTickDate(fxAsOf)}일(08:30 기준)` : "최근", STYLE.fxLabel);
+  putMerged(ROW_FX + 2, 0, 2, `${market.fx.baselineLabel}(${formatTickDate(market.fx.baselineDate)}일)比`, STYLE.fxLabel);
+  FX_SPECS.forEach((spec, i) => {
+    const from = 3 + i * 3;
+    const item = items.get(spec.id);
+    putMerged(ROW_FX, from, from + 2, spec.label, STYLE.fxHead);
+    putMerged(ROW_FX + 1, from, from + 2, item?.latest ? formatValue(spec, item.latest.value) : "-", STYLE.fxValue);
+    putMerged(
+      ROW_FX + 2,
+      from,
+      from + 2,
+      item && item.changePct !== null ? formatSignedPct(item.changePct, 1, "%") : "-",
+      STYLE.fxValue
+    );
+  });
+
+  // 각주
+  const overridden = market.charts
+    .filter((chart) => chart.overrideDates.length)
+    .map((chart) => `${CHART_SPECS.find((s) => s.id === chart.id)?.title ?? chart.id} ${chart.overrideDates.join("·")}`);
+  const notes = [
+    `기준일 ${market.asOf} (창 ${market.windowStart} ~ ${market.asOf}) · 생성 ${market.generatedAt.slice(0, 16).replace("T", " ")} UTC`,
+    "자료: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율). 달러인덱스는 ICE 산식으로 ECOS 6개 통화 환율에서 계산.",
+    "환율표는 한국은행 고시 환율(08:30) 기준. 위안은 원/달러 ÷ 원/위안 교차환율. 전주비는 지난주 같은 요일 대비(금리는 %p).",
+    ...(overridden.length ? [`기사에서 확인한 종가(출처 집계 전): ${overridden.join(", ")}`] : []),
+    `세로 연파랑 띠: ${market.event.label} ${market.event.note}. 1년치 원자료는 "${DATA_SHEET}" 시트.`,
+  ];
+  notes.forEach((note, i) => put(ROW_NOTE + i, cellText(`A${ROW_NOTE + i}`, note, STYLE.note)));
+
+  const rowXml = [...rows.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([row, cells]) => {
+      const height =
+        row === ROW_TITLE
+          ? ' ht="30" customHeight="1"'
+          : row === ROW_BAR_1 || row === ROW_BAR_2 || (row >= ROW_FX && row < ROW_NOTE)
+            ? ' ht="20" customHeight="1"'
+            : "";
+      return `<row r="${row}"${height}>${cells.join("")}</row>`;
+    })
+    .join("");
+
+  return (
+    XML +
+    `<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_R}">` +
+    `<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>` +
+    `<sheetFormatPr defaultRowHeight="15" customHeight="1"/>` +
+    `<cols><col min="1" max="${COLS}" width="${COL_WIDTH}" customWidth="1"/></cols>` +
+    `<sheetData>${rowXml}</sheetData>` +
+    `<mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>` +
+    `<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>` +
+    (placed.length ? `<drawing r:id="rId1"/>` : "") +
+    `</worksheet>`
+  );
+}
+
+function dataSheetXml(market: WeeklyMarket): string {
+  const charts = new Map(market.charts.map((chart) => [chart.id, chart]));
+  const columns = CHART_SPECS.map((spec) => ({ spec, points: charts.get(spec.id)?.points ?? [] }));
+  const longest = Math.max(0, ...columns.map((c) => c.points.length));
+
+  const rows: string[] = [];
+  const header = columns
+    .map(({ spec }, i) =>
+      cellText(`${col(i * 2)}1`, `${spec.title} 날짜`, STYLE.dataHead) + cellText(`${col(i * 2 + 1)}1`, spec.title, STYLE.dataHead)
+    )
+    .join("");
+  rows.push(`<row r="1">${header}</row>`);
+
+  for (let r = 0; r < longest; r += 1) {
+    const cells = columns
+      .map(({ points }, i) => {
+        const point = points[r];
+        if (!point) return "";
+        return cellNumber(`${col(i * 2)}${r + 2}`, serial(point.date), STYLE.date) + cellNumber(`${col(i * 2 + 1)}${r + 2}`, point.value, STYLE.normal);
+      })
+      .join("");
+    rows.push(`<row r="${r + 2}">${cells}</row>`);
+  }
+
+  return (
+    XML +
+    `<worksheet xmlns="${NS_MAIN}">` +
+    `<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
+    `<sheetFormatPr defaultRowHeight="15"/>` +
+    `<cols><col min="1" max="${columns.length * 2}" width="13" customWidth="1"/></cols>` +
+    `<sheetData>${rows.join("")}</sheetData>` +
+    `</worksheet>`
+  );
+}
+
+// ───────────────────────── 패키지 ─────────────────────────
+
+const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+function rels(entries: Array<{ id: string; type: string; target: string }>): string {
+  return (
+    XML +
+    `<Relationships xmlns="${NS_REL}">` +
+    entries.map((e) => `<Relationship Id="${e.id}" Type="${e.type}" Target="${e.target}"/>`).join("") +
+    `</Relationships>`
+  );
+}
+
+export function buildMarketWorkbook(market: WeeklyMarket): Uint8Array {
+  const chartById = new Map(market.charts.map((chart) => [chart.id, chart]));
+  const placed: Placed[] = [];
+  CHART_SPECS.forEach((spec, index) => {
+    const chart = chartById.get(spec.id);
+    if (!chart || !chart.points.length) return;
+    placed.push({ spec, chart, index, block: index % 3, barRow: index < 3 ? ROW_BAR_1 : ROW_BAR_2 });
+  });
+
+  const reportSheet = "주요국 금융시장 동향";
+  const files: Record<string, Uint8Array> = {};
+  const add = (name: string, xml: string) => {
+    files[name] = strToU8(xml);
+  };
+
+  add(
+    "[Content_Types].xml",
+    XML +
+      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+      `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+      `<Default Extension="xml" ContentType="application/xml"/>` +
+      `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+      `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+      `<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+      `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
+      (placed.length
+        ? `<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`
+        : "") +
+      placed
+        .map(
+          (_, i) =>
+            `<Override PartName="/xl/charts/chart${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>` +
+            `<Override PartName="/xl/drawings/chartshapes${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chartshapes+xml"/>`
+        )
+        .join("") +
+      `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>` +
+      `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>` +
+      `</Types>`
+  );
+
+  add(
+    "_rels/.rels",
+    rels([
+      { id: "rId1", type: `${REL}/officeDocument`, target: "xl/workbook.xml" },
+      { id: "rId2", type: `${PKG}/metadata/core-properties`, target: "docProps/core.xml" },
+      { id: "rId3", type: `${REL}/extended-properties`, target: "docProps/app.xml" },
+    ])
+  );
+
+  const now = new Date().toISOString().slice(0, 19) + "Z";
+  add(
+    "docProps/core.xml",
+    XML +
+      `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">` +
+      `<dc:title>주요국 금융시장 동향 ${esc(market.asOf)}</dc:title><dc:creator>cj-dashboard</dc:creator>` +
+      `<dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>` +
+      `</cp:coreProperties>`
+  );
+  add(
+    "docProps/app.xml",
+    XML +
+      `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">` +
+      `<Application>Microsoft Excel</Application></Properties>`
+  );
+
+  add(
+    "xl/workbook.xml",
+    XML +
+      `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_R}"><bookViews><workbookView xWindow="0" yWindow="0" windowWidth="24000" windowHeight="14000"/></bookViews>` +
+      `<sheets><sheet name="${esc(reportSheet)}" sheetId="1" r:id="rId1"/><sheet name="${esc(DATA_SHEET)}" sheetId="2" r:id="rId2"/></sheets>` +
+      `</workbook>`
+  );
+  add(
+    "xl/_rels/workbook.xml.rels",
+    rels([
+      { id: "rId1", type: `${REL}/worksheet`, target: "worksheets/sheet1.xml" },
+      { id: "rId2", type: `${REL}/worksheet`, target: "worksheets/sheet2.xml" },
+      { id: "rId3", type: `${REL}/styles`, target: "styles.xml" },
+    ])
+  );
+  add("xl/styles.xml", stylesXml());
+  add("xl/worksheets/sheet1.xml", reportSheetXml(market, placed));
+  add("xl/worksheets/sheet2.xml", dataSheetXml(market));
+
+  if (placed.length) {
+    add("xl/worksheets/_rels/sheet1.xml.rels", rels([{ id: "rId1", type: `${REL}/drawing`, target: "../drawings/drawing1.xml" }]));
+    add("xl/drawings/drawing1.xml", drawingXml(placed));
+    add(
+      "xl/drawings/_rels/drawing1.xml.rels",
+      rels(placed.map((_, i) => ({ id: `rId${i + 1}`, type: `${REL}/chart`, target: `../charts/chart${i + 1}.xml` })))
+    );
+    placed.forEach(({ spec, chart, index }, i) => {
+      const built = chartXml(spec, chart, market, index * 2, index === 0);
+      add(`xl/charts/chart${i + 1}.xml`, built.chart);
+      if (built.shapes) {
+        add(`xl/drawings/chartshapes${i + 1}.xml`, built.shapes);
+        add(
+          `xl/charts/_rels/chart${i + 1}.xml.rels`,
+          rels([{ id: "rId1", type: `${REL}/chartUserShapes`, target: `../drawings/chartshapes${i + 1}.xml` }])
+        );
+      }
+    });
+  }
+
+  return zipSync(files, { level: 6 });
+}

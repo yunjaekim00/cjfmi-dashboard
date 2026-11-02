@@ -1,25 +1,38 @@
 ---
 name: weekly
-description: 지난 일주일(KST) 금융시장 뉴스를 Bloomberg·국제금융센터에서 읽고 대시보드 "3. 주간 모니터링" 탭이 보여줄 data/weekly-brief.json 을 쓴다. 사용법 /weekly [종료일 YYYY-MM-DD]
+description: 지난 일주일(KST) 금융시장 뉴스를 Bloomberg·국제금융센터에서 읽고 대시보드 "3. 주간 모니터링" 탭이 보여줄 data/YYMMDD-weekly-brief.json(요약문)과 data/YYMMDD-weekly-market.json(차트 6개·환율표 자료)을 쓴다. 사용법 /weekly [종료일 YYYY-MM-DD]
 ---
 
 # /weekly — 주간 모니터링 작성
 
-대시보드 "3. 주간 모니터링" 탭이 보여줄 `data/<YYMMDD>-weekly-brief.json` 을 만든다 (YYMMDD = 실행일 KST 여섯 자리,
-예 `261102-weekly-brief.json`). Claude API 키나 크레딧 없이 이 Claude Code 세션(구독)이 뉴스를 읽고 문장을 쓴다.
-**지난 파일은 지우지 않는다** — 날짜별로 쌓이고, 서버는 파일명이 가장 늦은 것만 보여준다.
+대시보드 "3. 주간 모니터링" 탭이 보여줄 파일 두 개를 만든다 (YYMMDD = 실행일 KST 여섯 자리, 예 `261102`).
 
-인자 `$ARGUMENTS` 가 `YYYY-MM-DD` 면 그 날을 대상 기간의 끝으로 삼는다. 없으면 어제(KST) — "지난 일주일"은 끝난 7일이다. 대상 기간은 끝 날짜 포함 7일.
+| 파일 | 내용 | 만드는 주체 |
+|---|---|---|
+| `data/<YYMMDD>-weekly-brief.json` | [주간이슈]·[시장반응] 요약문, 참고 기사, 지표 주간 변동 | 이 세션이 뉴스를 읽고 쓴다 |
+| `data/<YYMMDD>-weekly-market.json` | "[ 주요국 금융시장 동향 ]" 차트 6개(최근 1년)와 환율표 자료 | `scripts/weekly-market.mjs` (FRED·ECOS) |
+
+Claude API 키나 크레딧 없이 이 Claude Code 세션(구독)이 뉴스를 읽고 문장을 쓴다. **지난 파일은 지우지 않는다** —
+날짜별로 쌓이고, 서버는 파일명이 가장 늦은 것(차트는 요약문과 같은 날짜 접두사의 것)만 보여준다.
+차트용 1년치 자료는 `data/market-history.json` 에 쌓여서 실행마다 최근 2주치만 다시 받는다.
+
+인자 `$ARGUMENTS` 가 `YYYY-MM-DD` 면 그 날을 대상 기간의 끝으로 삼는다. 없으면 어제(KST) — "지난 일주일"은 끝난 7일이다.
+대상 기간은 끝 날짜 포함 7일. 차트의 기준일(x축 오른쪽 끝)은 대상 기간 끝의 다음 날 = 보통 오늘이다.
 
 ## 1. 기간·지표
 
 - `node scripts/weekly-indicators.mjs $ARGUMENTS` 를 실행한다. stderr 의 표(한 주 전 → 최근)를 읽어 두고,
-  stdout 의 JSON 중 `indicators` 배열은 결과 파일의 `indicators` 에 그대로 넣는다.
+  stdout 의 JSON 중 `indicators` 배열은 요약문 파일의 `indicators` 에 그대로 넣는다.
+- `node scripts/weekly-market.mjs` 를 실행한다 (인자가 있었으면 `--as-of <대상 기간 끝 + 1일>`). stderr 에
+  차트 6개의 최근치·지난주·전주비 표와 환율표가 나온다. 이 표도 문장을 쓸 때 참고한다.
 - `ECOS_API_KEY` 가 없는 환경(클라우드 routine)이면 FRED 계열만 나오거나 모두 실패한다. 그래도 계속한다 —
-  `indicators` 를 빈 배열로 두면 서버가 자기 키로 채운다.
-- FRED 계열(S&P 500 · 美 10년물 · WTI)은 집계가 며칠 늦다. 기사(Bloomberg·Yahoo Finance·美 재무부 일별 금리표 등)에서
-  대상 기간 마지막 거래일 종가를 확인하면 해당 지표의 `latest` 를 그 값과 날짜로 **덮어쓴다** — 각주와 본문의 방향이
-  어긋나지 않게 하기 위해서다. 확인이 안 되면 FRED 값을 그대로 둔다.
+  요약문의 `indicators` 를 빈 배열로 두면 서버가 자기 키로 채운다 (차트는 자료가 있는 것만 그려진다).
+- FRED 계열(S&P 500 · 美 10년물 · WTI)은 집계가 며칠 늦다 — 스크립트가 "⚠ 최근치가 …일 전" 으로 알려 준다.
+  기사(Bloomberg·Yahoo Finance·美 재무부 일별 금리표 등)에서 대상 기간 마지막 거래일 종가를 확인하면
+  (1) 요약문 `indicators` 의 해당 `latest` 를 그 값과 날짜로 **덮어쓰고**,
+  (2) 같은 값을 `node scripts/weekly-market.mjs --set sp500=YYYY-MM-DD:값 --set ust10=… --set wti=…` 로 차트에도 넣는다
+  (2단계 뉴스 수집 뒤에 한 번만 실행하면 된다). 각주·본문·차트의 방향이 어긋나지 않게 하기 위해서다. 확인이 안 되면 그대로 둔다.
+  `--set` 값은 캐시에 남아 다음 주에도 쓰이고, FRED 에 그 날짜가 올라오면 FRED 값이 이긴다.
 
 ## 2. 뉴스 수집 (WebSearch, 필요하면 WebFetch 로 본문)
 
@@ -48,6 +61,7 @@ description: 지난 일주일(KST) 금융시장 뉴스를 Bloomberg·국제금�
 
 `data/<YYMMDD>-weekly-brief.json` 을 아래 모양으로 쓴다. YYMMDD 는 오늘(KST) 날짜 여섯 자리 — `date +%y%m%d` 로 확인한다.
 같은 날 다시 실행하면 그날 파일을 덮어쓴다. 서버는 `lib/weekly.ts` 의 `FileBrief` 스키마로 다시 검증한다.
+(`data/<YYMMDD>-weekly-market.json` 은 1단계의 스크립트가 이미 썼다 — 손으로 고치지 않는다.)
 
 ```json
 {
@@ -78,6 +92,7 @@ description: 지난 일주일(KST) 금융시장 뉴스를 Bloomberg·국제금�
 
 - `node scripts/weekly-validate.mjs` 를 실행해 통과할 때까지 고친다 (인자가 없으면 가장 최근 파일을 검사한다).
   경고(문체·길이)도 가능하면 반영한다.
-- 결과 문장을 사용자에게 보여 준다. 로컬이면 `npm run dev` 뒤 http://localhost:3000/?tab=weekly 에서 확인할 수 있다고 안내한다.
+- 결과 문장과 차트 표(1단계 stderr)를 사용자에게 보여 준다. 로컬이면 `npm run dev` 뒤 http://localhost:3000/?tab=weekly 에서
+  확인할 수 있고, 차트 아래 "엑셀 파일로 내려받기" 로 같은 내용을 엑셀로 받을 수 있다고 안내한다.
 - 커밋·푸시는 사용자가 요청했거나 자동 routine 으로 실행 중일 때만 한다:
-  `git add data/<YYMMDD>-weekly-brief.json && git commit -m "주간 모니터링 <weekStart>~<weekEnd>"`
+  `git add data/<YYMMDD>-weekly-brief.json data/<YYMMDD>-weekly-market.json data/market-history.json && git commit -m "주간 모니터링 <weekStart>~<weekEnd>"`

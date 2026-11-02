@@ -3,6 +3,16 @@
  * 서버(lib/weekly.ts)가 만들고 브라우저(components/WeeklyMonitor.tsx)가 그리므로
  * 양쪽에서 import 할 수 있도록 순수 타입만 둔다.
  */
+import type { WeeklyMarket } from "@/lib/market-shared";
+
+export type {
+  MarketChart,
+  MarketChartId,
+  MarketFxId,
+  MarketFxItem,
+  MarketPoint,
+  WeeklyMarket,
+} from "@/lib/market-shared";
 
 /** 시장반응 분야. 화면 순서는 모델이 정한다 — 그 주의 주도 요인을 앞에 둔다. */
 export const REACTION_CATEGORIES = ["주가", "금리", "외환", "원자재"] as const;
@@ -63,4 +73,9 @@ export type WeeklyBrief = {
   };
   sources: WeeklySource[];
   indicators: WeeklyIndicator[];
+  /**
+   * 상자 아래 "주요국 금융시장 동향" 차트 6개와 환율표 (lib/market-shared.ts).
+   * Claude Code 의 /weekly 가 data/YYMMDD-weekly-market.json 을 만들어야 생긴다. 없으면 null.
+   */
+  market?: WeeklyMarket | null;
 };

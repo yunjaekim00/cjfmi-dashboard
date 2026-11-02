@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { SERIES, type SeriesDef, type SeriesId } from "@/lib/catalog";
 import { formatChange, formatKoreanDate, formatNumber } from "@/lib/format";
+import { readMarketFile } from "@/lib/market";
 import { fetchEcosSeries } from "@/lib/sources/ecos";
 import { fetchFredSeries } from "@/lib/sources/fred";
 import type { Point } from "@/lib/types";
@@ -213,7 +214,11 @@ export const SAMPLE_BRIEF: WeeklyBrief = {
 /** 모델을 부르지 않는 미리보기 — 문장은 참고 원문 그대로, 지표 각주만 실제 값이다. */
 export async function getSampleBrief(): Promise<WeeklyBrief> {
   const weekEnd = defaultWeekEnd();
-  return { ...SAMPLE_BRIEF, indicators: await loadIndicators(shiftDate(weekEnd, -6), weekEnd) };
+  return {
+    ...SAMPLE_BRIEF,
+    indicators: await loadIndicators(shiftDate(weekEnd, -6), weekEnd),
+    market: await readMarketFile(),
+  };
 }
 
 function renderExample(brief: WeeklyBrief): string {
@@ -399,7 +404,7 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 
-/** 가장 최근 파일 경로. 날짜 접두사(파일명) 기준이라 지난 파일을 손봐도 순서가 바뀌지 않는다. 없으면 null. */
+/** 가장 최근 파일의 이름. 날짜 접두사(파일명) 기준이라 지난 파일을 손봐도 순서가 바뀌지 않는다. 없으면 null. */
 async function findLatestBriefFile(): Promise<string | null> {
   let names: string[];
   try {
@@ -411,19 +416,19 @@ async function findLatestBriefFile(): Promise<string | null> {
 
   const dated = names.filter((name) => BRIEF_FILE_PATTERN.test(name)).sort();
   // 접두사 없는 옛 이름도 받아 주되, 날짜 붙은 파일이 하나라도 있으면 그쪽이 우선이다.
-  const latest = dated.at(-1) ?? (names.includes("weekly-brief.json") ? "weekly-brief.json" : null);
-  return latest ? path.join(BRIEF_DIR, latest) : null;
+  return dated.at(-1) ?? (names.includes("weekly-brief.json") ? "weekly-brief.json" : null);
 }
 
 /** 파일이 없으면 null. 있으면 검증해서 돌려주고, 지표 각주가 비어 있으면 여기서 채운다. */
 async function readBriefFile(): Promise<WeeklyBrief | null> {
-  const file = await findLatestBriefFile();
-  if (!file) return null;
-  const name = path.basename(file);
+  const name = await findLatestBriefFile();
+  if (!name) return null;
 
+  // 경로를 fs 호출 자리에서 "data" 하위로 묶어 써야 Turbopack 이 data/ 만 번들에 넣는다
+  // (변수에 담아 넘기면 프로젝트 전체를 추적한다는 경고가 난다).
   let mtime: number;
   try {
-    mtime = (await stat(file)).mtimeMs;
+    mtime = (await stat(path.join(process.cwd(), "data", name))).mtimeMs;
   } catch (error) {
     if (isMissing(error)) return null;
     throw error;
@@ -436,7 +441,7 @@ async function readBriefFile(): Promise<WeeklyBrief | null> {
 
   let json: unknown;
   try {
-    json = JSON.parse(await readFile(file, "utf8"));
+    json = JSON.parse(await readFile(path.join(process.cwd(), "data", name), "utf8"));
   } catch (error) {
     throw new WeeklyConfigError(
       `data/${name} 을 읽지 못했습니다: ${error instanceof Error ? error.message : error}`
@@ -651,7 +656,13 @@ type Options = {
   force?: boolean;
 };
 
-export async function getWeeklyBrief({ force = false }: Options = {}): Promise<WeeklyBrief> {
+export async function getWeeklyBrief(options: Options = {}): Promise<WeeklyBrief> {
+  const brief = await resolveBrief(options);
+  // 차트·환율표 자료는 본문과 별도 파일이다 — 같은 날짜 접두사(YYMMDD)의 것을 우선 붙인다.
+  return { ...brief, market: await readMarketFile(brief.file?.slice(0, 6)) };
+}
+
+async function resolveBrief({ force = false }: Options): Promise<WeeklyBrief> {
   // Claude Code 가 만든 파일이 있으면 그것이 정답이다. 갱신도 /weekly 로 한다.
   const fromFile = await readBriefFile();
   if (fromFile) return fromFile;

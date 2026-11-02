@@ -151,3 +151,124 @@ button {
   background: currentColor;
   vertical-align: 0.24em;
 }
+
+/*
+ * ─────────── 주요국 금융시장 동향 (주간 모니터링 상자 아래 차트 6개 + 환율표) ───────────
+ * 참고 보고서의 Excel 차트를 옮겼다. 색은 보고서 이미지에서 뽑은 값 그대로다:
+ *   선·숫자 #3464B6 · 공습 표시 띠 #DFE5F1 · 소제목 바 #D4D4D4 · 눈금 글자 #4F4F4F · 단위·사건 라벨 #757575
+ * 서체는 본문 CJ ONLYONE 300, 소제목은 300 에 굵게(합성), 제목·사건 라벨만 400 가족.
+ */
+.mk {
+  --mk-blue: #3464b6;
+  --mk-band: #dfe5f1;
+  --mk-bar: #d4d4d4;
+  --mk-tick: #4f4f4f;
+  --mk-note: #757575;
+
+  font-family:
+    var(--font-cj-onlyone), "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-weight: 300;
+  color: #000;
+  word-break: keep-all;
+}
+
+.mk-400 {
+  font-family:
+    var(--font-cj-onlyone-400), "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  font-weight: 400;
+}
+
+.mk-title {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 21px;
+  line-height: 30px;
+}
+
+.mk-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid #000;
+  border-left: 1px solid #000;
+  background: #fff;
+}
+
+.mk-cell {
+  min-width: 0;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+}
+
+/* 소제목 바 — 300 굵기에 굵게를 얹는다(보고서와 같은 합성 볼드) */
+.mk-bar {
+  padding: 2px 4px;
+  background: var(--mk-bar);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  font-synthesis: weight;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mk-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.mk-chart text {
+  user-select: none;
+}
+
+.mk-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 610 / 330;
+  font-size: 13px;
+  color: var(--mk-note);
+  text-align: center;
+  padding: 0 12px;
+}
+
+/* 환율표 */
+.mk-fx {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: #fff;
+  text-align: center;
+  font-size: 15px;
+  line-height: 20px;
+  border-top: 2.5px solid #000;
+}
+
+.mk-fx th,
+.mk-fx td {
+  border: 1px solid #000;
+  padding: 3px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mk-fx th {
+  background: var(--mk-bar);
+  font-weight: 700;
+  font-synthesis: weight;
+}
+
+/* "(+ 절상, − 절하)" 안내 칸과 행 머리는 보고서처럼 조금 작고 보통 굵기 */
+.mk-fx th:first-child {
+  font-size: 13px;
+  font-weight: 300;
+}
+
+.mk-fx td:first-child {
+  background: #dadada;
+  font-size: 14px;
+}

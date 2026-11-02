@@ -1,5 +1,6 @@
 "use client";
 
+import { MarketPanel } from "@/components/MarketPanel";
 import { parseEmphasis } from "@/lib/emphasis";
 import { formatChange, formatDayTick, formatKoreanDate, formatNumber } from "@/lib/format";
 import { toMs } from "@/lib/series";
@@ -269,6 +270,10 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
           <Meta brief={brief} refreshing={refreshing} onRegenerate={onRegenerate} />
           <BriefBox brief={brief} />
           <Footnotes brief={brief} />
+          {/* 상자와 같은 너비로 차트 6개와 환율표 — 자료 파일은 /weekly 가 만든다 */}
+          <div className="pt-3">
+            <MarketPanel market={brief.market} />
+          </div>
         </>
       ) : refreshing || state.status === "idle" ? (
         <LoadingBox />
