@@ -20,8 +20,13 @@ import {
  * "주요국 금융시장 동향"을 엑셀 파일로 만든다. (서버 전용)
  *
  * 라이브러리 없이 OOXML 조각을 직접 쓴다 — 차트(DrawingML)를 만들어 주는 JS 라이브러리가 마땅치 않아서다.
- *   시트 1 "주요국 금융시장 동향": 화면과 같은 배치 — 제목, 소제목 바, 차트 6개, 환율표, 각주
+ *   시트 1 "주요국 금융시장 동향": 제목, 차트 6개(3×2), 환율표, 각주
  *   시트 2 "데이터": 차트마다 날짜·값 두 열 (1년치)
+ *
+ * 차트 서식은 사용자가 쓰는 엑셀 파일의 차트를 기준으로 맞췄다 (2026-11-02 전달받은 화면):
+ *   테두리 없음 · 제목은 차트 왼쪽 위에 굵게 13pt · 단위 표기는 그 아래 회색 9pt · 눈금 글자 회색 10pt
+ *   최근치 파랑 굵게 14pt + 전주비 파랑 굵게 9pt 를 오른쪽 끝에 · 사건 띠는 폭 6pt, 플롯 안에서 선 뒤에
+ * 사건 띠는 첫 번째 계열(굵은 연파랑 세로선)이다 — 도형(userShapes)은 늘 맨 위에 그려져 지표 선을 가리기 때문.
  * 차트는 엑셀 네이티브 분산형(직선) 차트다. 선형 차트는 모든 계열이 같은 날짜 축을 공유하는데
  * 계열마다 거래일이 달라서, 날짜를 x 값으로 갖는 분산형을 쓴다. 보고서의 생김새는 계열 세 개로 만든다:
  *   ① 공습 표시 띠(연파랑 굵은 세로선) ② 지표 선 ③ x 눈금 라벨(투명한 점 + 데이터 레이블)
@@ -50,20 +55,34 @@ const NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
 const COLS = 21;
 const BLOCK = 7;
 const COL_WIDTH = 5.71; // ≈ 45px → 차트 한 칸 315px
-const CHART_ROWS = 10; // 10 × 15pt(20px) = 200px — 7열(≈360px)과 합쳐 화면·보고서와 같은 1.8:1
+const CHART_ROWS = 11; // 11 × 15pt(20px) = 220px — 제목이 차트 안에 들어가므로 보고서 비율(1.8:1)보다 조금 높다
 const ROW_TITLE = 1;
-const ROW_BAR_1 = 2;
-const ROW_BAR_2 = ROW_BAR_1 + 1 + CHART_ROWS; // 20
-const ROW_FX = ROW_BAR_2 + 1 + CHART_ROWS + 1; // 39
-const ROW_NOTE = ROW_FX + 4; // 43
+/** 차트 두 줄의 첫 행 (제목 바 없이 차트가 바로 시작한다 — 사용자 엑셀 디자인) */
+const ROW_CHART_1 = 2;
+const ROW_CHART_2 = ROW_CHART_1 + CHART_ROWS + 1; // 14
+const ROW_FX = ROW_CHART_2 + CHART_ROWS + 1; // 26
+const ROW_NOTE = ROW_FX + 4; // 30
 
 const DATA_SHEET = "데이터";
 
-/** 차트 안 플롯 영역(차트 크기 대비 비율) — 화면 SVG 의 여백과 같은 비율 */
+/** 차트 안 배치(차트 크기 대비 비율). 사용자 엑셀 차트를 잰 값 — 위에서부터 제목 · 단위 표기 · 플롯 · x 눈금 */
 const PLOT_X = 0.21;
-const PLOT_Y = 0.13;
-const PLOT_W = 0.745;
-const PLOT_H = 0.65;
+const PLOT_Y = 0.3;
+const PLOT_W = 0.7;
+const PLOT_H = 0.48;
+/** 단위 표기 "(원/달러)" 의 위치 */
+const UNIT_Y = 0.17;
+/** 사건 띠 굵기 (EMU, 6pt ≈ 차트 너비의 2.5%) — 계열 선이라 pt 로 준다 */
+const BAND_WIDTH_EMU = 76200;
+/** 사건 라벨을 띠 오른쪽에 둘 때의 간격 (차트 너비 대비) */
+const BAND_GAP = 0.025;
+
+/** 글자 크기 (1/100 pt) */
+const SZ_TITLE = 1300;
+const SZ_TICK = 1000;
+const SZ_NOTE = 900;
+const SZ_VALUE = 1400;
+const SZ_CHANGE = 900;
 
 // ───────────────────────── 작은 도구 ─────────────────────────
 
@@ -165,18 +184,18 @@ function stylesXml(): string {
 
 // ───────────────────────── 차트 XML ─────────────────────────
 
-type RunStyle = { sz: number; color: string; font?: string };
+type RunStyle = { sz: number; color: string; font?: string; bold?: boolean };
 
-function run(text: string, { sz, color, font = FONT_300 }: RunStyle): string {
+function run(text: string, { sz, color, font = FONT_300, bold = false }: RunStyle): string {
   return (
-    `<a:r><a:rPr lang="ko-KR" sz="${sz}" b="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
+    `<a:r><a:rPr lang="ko-KR" sz="${sz}" b="${bold ? 1 : 0}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
     `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`
   );
 }
 
-function para(runs: string, align: "l" | "ctr" | "r" = "ctr", sz = 900): string {
-  // defRPr 의 크기를 run 과 맞춘다 — Excel 은 이 기본 크기로 레이블 상자를 재므로, 비워 두면 큰 글자가 상자를 넘쳐 줄바꿈된다
-  return `<a:p><a:pPr algn="${align}"><a:defRPr sz="${sz}" b="0"/></a:pPr>${runs}</a:p>`;
+function para(runs: string, align: "l" | "ctr" | "r" = "ctr", sz = 900, bold = false): string {
+  // defRPr 의 크기를 run 과 맞춘다 — Excel 은 이 기본 크기로 상자를 잰다
+  return `<a:p><a:pPr algn="${align}"><a:defRPr sz="${sz}" b="${bold ? 1 : 0}"/></a:pPr>${runs}</a:p>`;
 }
 
 function richText(paragraphs: string): string {
@@ -221,8 +240,8 @@ function dataLabels(labels: string): string {
   return labels ? `<c:dLbls>${labels}${SHOW_NONE}</c:dLbls>` : "";
 }
 
-function line(width: number, color: string): string {
-  return `<c:spPr><a:ln w="${width}" cap="rnd"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
+function line(width: number, color: string, cap: "rnd" | "flat" = "rnd"): string {
+  return `<c:spPr><a:ln w="${width}" cap="${cap}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
 }
 
 const NO_LINE = `<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>`;
@@ -258,7 +277,7 @@ function valueAxis(
     (options.axisLine
       ? `<c:spPr><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></c:spPr>`
       : NO_LINE) +
-    textProps(900, TICK) +
+    textProps(SZ_TICK, TICK) +
     `<c:crossAx val="${crossId}"/><c:crosses val="min"/><c:crossBetween val="midCat"/>` +
     (options.majorUnit ? `<c:majorUnit val="${options.majorUnit}"/>` : "") +
     `</c:valAx>`
@@ -279,6 +298,7 @@ function textBox(box: { x0: number; y0: number; x1: number; y1: number }, paragr
 }
 
 let nextShapeId = 2;
+
 
 function userShapesXml(shapes: string[]): string {
   return (
@@ -304,18 +324,20 @@ function chartXml(
   const { windowStart, ticks } = marketWindow(market.asOf);
   const scale = yScale(chart.points.map((p) => p.value));
   const xMin = serial(windowStart);
-  // 축은 기준일보다 45일쯤 더 오른쪽까지 — 마지막 점 위아래에 붙는 최근치 레이블이 차트 밖으로 잘리지 않게
-  const xMax = serial(market.asOf) + 45;
+  // 축은 기준일보다 열흘쯤 더 오른쪽까지 — 사용자 엑셀처럼 선이 거의 오른쪽 끝에서 끝난다
+  const xMax = serial(market.asOf) + 10;
   const yFormat = scale.decimals === 0 ? "#,##0" : `0.${"0".repeat(scale.decimals)}`;
 
-  // ① 사건 띠 — 같은 날짜의 아래·위 두 점을 굵은 연파랑 선으로 잇는다
   const eventSerial = serial(market.event.date);
   const eventInWindow = market.event.date >= windowStart && market.event.date <= market.asOf;
+  const eventX = PLOT_X + PLOT_W * ((eventSerial - xMin) / (xMax - xMin));
+
+  // ① 사건 띠 — 같은 날짜의 아래·위 두 점을 굵은 연파랑 선으로 잇는다. 첫 계열이라 지표 선 뒤에 그려진다.
   const band: Series | null = eventInWindow
     ? {
         idx: 0,
         name: market.event.label,
-        spPr: line(57150, BAND),
+        spPr: line(BAND_WIDTH_EMU, BAND, "flat"),
         dLbls: "",
         xVal: numLit([eventSerial, eventSerial]),
         yVal: numLit([scale.lo, scale.hi]),
@@ -326,14 +348,15 @@ function chartXml(
   const main: Series = {
     idx: 1,
     name: spec.title,
-    spPr: line(19050, BLUE),
+    spPr: line(25400, BLUE), // 2pt — 사용자 엑셀 차트의 선 굵기
     dLbls: "",
     xVal: numRef(dateRef),
     yVal: numRef(valueRef),
   };
 
-  // 텍스트 상자 — 최근치·전주비(오른쪽 끝, 화면과 같은 규칙으로 선의 빈 쪽), 첫 차트엔 사건 라벨(띠 오른쪽 위)
+  // 차트 위 텍스트 상자 — ④ 단위 표기 ⑤ 최근치·전주비 ⑥ 첫 차트엔 사건 라벨
   const shapes: string[] = [];
+  shapes.push(textBox({ x0: 0.03, y0: UNIT_Y, x1: 0.7, y1: UNIT_Y + 0.11 }, para(run(spec.unitLabel, { sz: SZ_NOTE, color: NOTE }), "l", SZ_NOTE)));
   const { latest, weekAgo } = chart;
   if (latest) {
     const below = annotationBelow(chart.points, windowStart, market.asOf, scale.lo, scale.hi);
@@ -342,27 +365,27 @@ function chartXml(
       .filter((p) => dateFraction(p.date, windowStart, market.asOf) >= 0.7)
       .map((p) => p.value);
     const anchor = recent.length ? (below ? Math.min(...recent) : Math.max(...recent)) : latest.value;
-    const change = weekAgo ? `(${first ? "전주비 " : ""}${formatWeekChange(spec, latest, weekAgo)})` : "";
-    const h = change ? 0.22 : 0.13;
-    // 아래에 둘 때는 x축 선(PLOT_Y + PLOT_H) 위에서 끝나게, 위에 둘 때는 차트 위쪽 가장자리 안에
+    const change = weekAgo ? `(${first ? "전주比 " : ""}${formatWeekChange(spec, latest, weekAgo)})` : "";
+    const h = change ? 0.21 : 0.12;
+    // 아래에 둘 때는 x축 선(PLOT_Y + PLOT_H) 위에서 끝나게(글이 상자 아래로 0.035쯤 내려오므로 여유를 둔다),
+    // 위에 둘 때는 단위 표기 아래에서 시작하게
     const top = below
-      ? Math.min(PLOT_Y + PLOT_H - h - 0.01, yFrac(anchor) + 0.03)
-      : Math.max(0.02, yFrac(anchor) - (h + 0.03));
+      ? Math.min(PLOT_Y + PLOT_H - h - 0.05, yFrac(anchor) + 0.03)
+      : Math.max(UNIT_Y + 0.08, yFrac(anchor) - (h + 0.03));
     shapes.push(
       textBox(
-        { x0: 0.45, y0: top, x1: PLOT_X + PLOT_W, y1: top + h },
-        para(run(formatValue(spec, latest.value), { sz: 1400, color: BLUE }), "r", 1400) +
-          (change ? para(run(change, { sz: 900, color: BLUE }), "r", 900) : "")
+        { x0: 0.4, y0: top, x1: PLOT_X + PLOT_W + 0.02, y1: top + h },
+        para(run(formatValue(spec, latest.value), { sz: SZ_VALUE, color: BLUE, bold: true }), "r", SZ_VALUE, true) +
+          (change ? para(run(change, { sz: SZ_CHANGE, color: BLUE, bold: true }), "r", SZ_CHANGE, true) : "")
       )
     );
   }
   if (first && eventInWindow) {
-    const eventX = PLOT_X + PLOT_W * ((eventSerial - xMin) / (xMax - xMin));
     shapes.push(
       textBox(
-        { x0: eventX + 0.012, y0: PLOT_Y - 0.01, x1: Math.min(0.99, eventX + 0.5), y1: PLOT_Y + 0.17 },
-        para(run(market.event.label, { sz: 800, color: NOTE, font: FONT_400 }), "l", 800) +
-          para(run(market.event.note, { sz: 800, color: NOTE, font: FONT_400 }), "l", 800)
+        { x0: eventX + BAND_GAP, y0: UNIT_Y + 0.1, x1: Math.min(0.99, eventX + 0.55), y1: UNIT_Y + 0.28 },
+        para(run(market.event.label, { sz: SZ_NOTE, color: NOTE, font: FONT_400 }), "l", SZ_NOTE) +
+          para(run(market.event.note, { sz: SZ_NOTE, color: NOTE, font: FONT_400 }), "l", SZ_NOTE)
       )
     );
   }
@@ -374,7 +397,7 @@ function chartXml(
     spPr: NO_LINE,
     dLbls: dataLabels(
       ticks
-        .map((tick, i) => dataLabel(i, richText(para(run(formatTickDate(tick), { sz: 900, color: TICK }), "ctr", 900)), "b"))
+        .map((tick, i) => dataLabel(i, richText(para(run(formatTickDate(tick), { sz: SZ_TICK, color: TICK }), "ctr", SZ_TICK)), "b"))
         .join("")
     ),
     xVal: numLit(ticks.map(serial)),
@@ -386,8 +409,8 @@ function chartXml(
     `<c:x val="${PLOT_X}"/><c:y val="${PLOT_Y}"/><c:w val="${PLOT_W}"/><c:h val="${PLOT_H}"/></c:manualLayout></c:layout>`;
 
   const title =
-    `<c:title>${richText(para(run(spec.unitLabel, { sz: 800, color: NOTE }), "l", 800))}` +
-    `<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.01"/><c:y val="0.02"/></c:manualLayout></c:layout>` +
+    `<c:title>${richText(para(run(spec.title, { sz: SZ_TITLE, color: "000000", bold: true }), "l", SZ_TITLE, true))}` +
+    `<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.005"/><c:y val="0.01"/></c:manualLayout></c:layout>` +
     `<c:overlay val="1"/></c:title>`;
 
 
@@ -405,8 +428,8 @@ function chartXml(
     valueAxis(20, 10, "l", scale.lo, scale.hi, { numFmt: yFormat, labels: true, axisLine: false, majorUnit: scale.step }) +
     `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>` +
     `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>` +
-    `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></c:spPr>` +
-    textProps(900, "000000") +
+    `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>` +
+    textProps(SZ_TICK, "000000") +
     (shapes.length ? `<c:userShapes r:id="rId1"/>` : "") +
     `</c:chartSpace>`;
 
@@ -415,13 +438,13 @@ function chartXml(
 
 // ───────────────────────── 시트 ─────────────────────────
 
-type Placed = { spec: ChartSpec; chart: MarketChart; index: number; block: number; barRow: number };
+type Placed = { spec: ChartSpec; chart: MarketChart; index: number; block: number; firstRow: number };
 
 function drawingXml(placed: Placed[]): string {
   const anchors = placed
-    .map(({ index, block, barRow }, i) => {
+    .map(({ index, block, firstRow }, i) => {
       const fromCol = block * BLOCK;
-      const fromRow = barRow; // 0 기준 행 번호 = 소제목 바 다음 행
+      const fromRow = firstRow - 1; // xdr:row 는 0 기준
       return (
         `<xdr:twoCellAnchor editAs="oneCell">` +
         `<xdr:from><xdr:col>${fromCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${fromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
@@ -451,15 +474,14 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
   // 제목
   putMerged(ROW_TITLE, 0, COLS - 1, "[ 주요국 금융시장 동향 ]", STYLE.title);
 
-  // 소제목 바 — 자료가 없는 칸에도 바는 둔다
+  // 자료가 없는 칸에는 제목과 사유만 적는다 (차트 제목은 차트 안에 있다)
   CHART_SPECS.forEach((spec, index) => {
+    if (placed.some((p) => p.index === index)) return;
     const block = index % 3;
-    const barRow = index < 3 ? ROW_BAR_1 : ROW_BAR_2;
-    putMerged(barRow, block * BLOCK, block * BLOCK + BLOCK - 1, spec.title, STYLE.bar);
-    if (!placed.some((p) => p.index === index)) {
-      const chart = market.charts.find((c) => c.id === spec.id);
-      putMerged(barRow + 2, block * BLOCK, block * BLOCK + BLOCK - 1, chart?.error ?? "자료 없음", STYLE.note);
-    }
+    const firstRow = index < 3 ? ROW_CHART_1 : ROW_CHART_2;
+    const chart = market.charts.find((c) => c.id === spec.id);
+    putMerged(firstRow, block * BLOCK, block * BLOCK + BLOCK - 1, spec.title, STYLE.dataHead);
+    putMerged(firstRow + 2, block * BLOCK, block * BLOCK + BLOCK - 1, chart?.error ?? "자료 없음", STYLE.note);
   });
 
   // 환율표
@@ -505,7 +527,7 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
       const height =
         row === ROW_TITLE
           ? ' ht="30" customHeight="1"'
-          : row === ROW_BAR_1 || row === ROW_BAR_2 || (row >= ROW_FX && row < ROW_NOTE)
+          : row >= ROW_FX && row < ROW_NOTE
             ? ' ht="20" customHeight="1"'
             : "";
       return `<row r="${row}"${height}>${cells.join("")}</row>`;
@@ -581,7 +603,7 @@ export function buildMarketWorkbook(market: WeeklyMarket): Uint8Array {
   CHART_SPECS.forEach((spec, index) => {
     const chart = chartById.get(spec.id);
     if (!chart || !chart.points.length) return;
-    placed.push({ spec, chart, index, block: index % 3, barRow: index < 3 ? ROW_BAR_1 : ROW_BAR_2 });
+    placed.push({ spec, chart, index, block: index % 3, firstRow: index < 3 ? ROW_CHART_1 : ROW_CHART_2 });
   });
 
   const reportSheet = "주요국 금융시장 동향";

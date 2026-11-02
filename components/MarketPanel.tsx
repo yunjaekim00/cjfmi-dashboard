@@ -142,7 +142,7 @@ function MarketChartSvg({ spec, chart, market, first }: ChartProps) {
           </text>
           {changeText ? (
             <text x={PLOT.right} y={changeBaseline} fontSize={26}>
-              ({first ? "전주비 " : ""}
+              ({first ? "전주比 " : ""}
               {changeText})
             </text>
           ) : null}
