@@ -1,0 +1,200 @@
+{
+  "weekStart": "2026-10-27",
+  "weekEnd": "2026-11-02",
+  "generatedAt": "2026-11-03T07:05:00Z",
+  "model": "claude-code",
+  "issue": {
+    "headline": "美 빅테크 실적 실망發 AI 투자 회수 우려 지속, 나스닥100은 10월 고점比 10% 하락해 조정 진입(2일)",
+    "points": [
+      "美, 이란과 외교적 해결 우선(중간선거 후까지 공격 보류)·이란 최고지도자도 협상 권한 부여, 유가 2일 7% 급락",
+      "연준, 기준금리 동결(3.75~4.00%)에도 경기 판단 상향, 10월 ISM 제조업 55.5(예상 54.5)로 12월 인상 경계 지속"
+    ]
+  },
+  "reaction": {
+    "headline": "美 기술주 조정에 S&P500 {{↓}}, 유가 급락·안전자산 수요에 美 금리 {{↓}}, KOSPI는 기관 매수로 급락 만회 {{↑}}",
+    "items": [
+      {
+        "category": "주가",
+        "text": "{{S&P500}}은 AI 투자 회수 우려에 주간 {{1.8% 하락}}(7,541), {{KOSPI}}는 30일 급락 후 기관 매수(1.2조)로 {{5,859 반등}}"
+      },
+      {
+        "category": "금리",
+        "text": "{{美}}는 유가 급락·안전자산 수요로 10년물 {{4.91% 하락}}(주간 −9bp, 9월 이후 최저), {{韓}}도 3년물 {{3.74% 하락}}(−5bp)"
+      },
+      {
+        "category": "외환",
+        "text": "{{원달러}}는 외국인 주식 매도 자금 송금·수입 결제 수요에 2일 1,343.8원(마감가, 2주래 최고)으로 {{상승}}, 고시 기준 주간 +12.9원"
+      },
+      {
+        "category": "원자재",
+        "text": "{{WTI}}는 美·이란 협상 기대에 2일 7.4% 급락(3개월래 최대)해 {{96달러대 하락}}(주간 −8%), {{금}}은 2개월래 최대 {{상승}}"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "title": "[11. 3] 미국 트럼프, 이란과는 외교적 해결을 우선. 이란도 평화 협상에 긍정 신호 발신 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37670&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-03"
+    },
+    {
+      "title": "[11. 2] 이란, 광범위한 對美 보복 준비. 파키스탄은 신중하게 美-이란 협상 타결 기대 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37661&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "[10.31] AI 투자 수익성에 대한 불안으로 美 기술주 급락, 신용시장 불안 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37659&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-10-31"
+    },
+    {
+      "title": "미국 연준 10월 FOMC 회의 결과 및 평가",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/economy/economyView?rpt_no=37647&mn=003002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-10-29"
+    },
+    {
+      "title": "US Tech Stocks Enter Correction on AI and Midterm Election Risks",
+      "publisher": "Bloomberg",
+      "url": "https://bloomberg.com/news/articles/2026-11-02/us-stock-futures-rise-as-oil-prices-drop-easing-ai-led-selloff",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "Treasury Yields Extend Past Month's Slide as Oil Prices Tumble",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-02/treasury-yields-extend-past-month-s-slide-as-oil-prices-tumble",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "Oil Slides After Report Says Trump Favors Iran Diplomacy",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/newsletters/2026-11-02/oil-slides-after-report-says-trump-favors-iran-diplomacy",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "Gold Holds Biggest Jump in Two Months on Iran Peace-Deal Hopes",
+      "publisher": "Bloomberg",
+      "url": "https://bloomberg.com/news/articles/2026-11-03/gold-holds-biggest-jump-in-two-months-on-iran-peace-deal-hopes",
+      "date": "2026-11-03"
+    },
+    {
+      "title": "Nasdaq starts November with 1% loss as tech melts down again",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/01/stock-market-today-live-updates.html",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "[마감 시황] 美 반도체 충격 딛고 일어선 코스피… 기관 중심 매수세 유입에 2%대 상승한 5,800선 안착",
+      "publisher": "Businesskorea",
+      "url": "https://www.businesskorea.co.kr/news/articleView.html?idxno=280247",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "원·달러 환율 1340원대 안착…외인 송금·수요 겹쳐 2주만 최고치 마감",
+      "publisher": "세계일보",
+      "url": "https://www.segye.com/newsView/20261102516409",
+      "date": "2026-11-02"
+    },
+    {
+      "title": "국고채 금리 일제히 상승…3년물 연 3.740%",
+      "publisher": "SBS Biz",
+      "url": "https://biz.sbs.co.kr/article/20000343722",
+      "date": "2026-11-02"
+    }
+  ],
+  "indicators": [
+    {
+      "id": "sp500",
+      "label": "S&P 500",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 7541.4
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 7676.77
+      }
+    },
+    {
+      "id": "ust10",
+      "label": "美 10년물",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 4.91
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 5
+      }
+    },
+    {
+      "id": "kospi",
+      "label": "KOSPI",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 5859.08
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 5469.47
+      }
+    },
+    {
+      "id": "ktb3",
+      "label": "국고채 3년",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 3.74
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 3.789
+      }
+    },
+    {
+      "id": "usdkrw",
+      "label": "원/달러",
+      "unit": "원",
+      "digits": 1,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 1337.2
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 1324.3
+      }
+    },
+    {
+      "id": "wti",
+      "label": "WTI",
+      "unit": "$",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-02",
+        "value": 96.46
+      },
+      "weekAgo": {
+        "date": "2026-10-26",
+        "value": 105.25
+      }
+    }
+  ]
+}
