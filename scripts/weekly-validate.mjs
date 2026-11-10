@@ -13,7 +13,7 @@ import { z } from "zod";
 const CATEGORIES = ["주가", "금리", "외환", "원자재"];
 const Line = z.string().trim().min(1);
 const DateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD 형식이어야 합니다");
-const Point = z.object({ date: DateString, value: z.number() });
+const Point = z.object({ date: DateString, value: z.number(), time: z.string().nullable().optional() });
 
 const Brief = z
   .object({
@@ -58,7 +58,14 @@ const Brief = z
 function latestBriefPath() {
   let names = [];
   try {
-    names = readdirSync("data").filter((n) => /^\d{6}-weekly-brief\.json$/.test(n)).sort();
+    // 접두사 YYMMDD-HHMM (시각 없는 옛 이름도) 순
+    const stampKey = (name) => {
+      const match = /^(\d{6})(?:-(\d{4}))?/.exec(name);
+      return match ? `${match[1]}${match[2] ?? "0000"}` : "";
+    };
+    names = readdirSync("data")
+      .filter((n) => /^\d{6}(?:-\d{4})?-weekly-brief\.json$/.test(n))
+      .sort((a, b) => stampKey(a).localeCompare(stampKey(b)));
   } catch {
     // data/ 가 없으면 아래에서 읽기 실패로 알린다
   }

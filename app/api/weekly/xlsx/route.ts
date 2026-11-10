@@ -1,27 +1,33 @@
 import type { NextRequest } from "next/server";
 
-import { readMarketFile } from "@/lib/market";
+import { applyCompareBase, getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
 import { buildMarketWorkbook } from "@/lib/xlsx-market";
 
 /**
  * "주요국 금융시장 동향"을 엑셀 파일로 내려준다 — 화면의 차트 6개·환율표 + 1년치 원자료.
  * 자료는 Claude Code 의 /weekly 가 만든 data/YYMMDD-weekly-market.json 이다.
  *
- *   GET /api/weekly/xlsx            # 가장 최근 파일
- *   GET /api/weekly/xlsx?as=261102  # 그 날짜 접두사의 파일 (없으면 최근 파일)
+ *   GET /api/weekly/xlsx            # 가장 최근 파일 + 내려받는 시점의 시세(화면과 같다)
+ *   GET /api/weekly/xlsx?as=261102  # 그 접두사(날짜 또는 날짜-시각)의 파일 (없으면 최근 파일)
+ *   GET /api/weekly/xlsx?live=0     # 시세를 덧씌우지 않고 파일 그대로
+ *   GET /api/weekly/xlsx?base=261103-1559  # 전주比를 그 스냅샷(지난 보고 시점 값) 대비로 — 화면의 "전주比 기준"과 같게
  */
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function GET(request: NextRequest) {
-  const prefix = request.nextUrl.searchParams.get("as")?.slice(0, 6);
-  const market = await readMarketFile(prefix || undefined);
-  if (!market) {
+  const prefix = request.nextUrl.searchParams.get("as")?.slice(0, 11);
+  const file = await readMarketFile(prefix || undefined);
+  if (!file) {
     return Response.json(
       { error: "주요국 금융시장 동향 자료(data/YYMMDD-weekly-market.json)가 없습니다. Claude Code 에서 /weekly 를 실행하세요." },
       { status: 404, headers: NO_STORE }
     );
   }
 
+  const live = request.nextUrl.searchParams.get("live") === "0" ? file : overlayLiveMarket(file, await getLiveQuotes());
+  const base = request.nextUrl.searchParams.get("base");
+  const snapshot = base ? ((await listMarketSnapshots()).find((s) => s.prefix === base) ?? null) : null;
+  const market = applyCompareBase(live, snapshot);
   const bytes = buildMarketWorkbook(market);
   const name = `${market.asOf.slice(2).replaceAll("-", "")}-weekly-market.xlsx`;
 

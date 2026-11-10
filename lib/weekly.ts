@@ -7,7 +7,8 @@ import { z } from "zod";
 
 import { SERIES, type SeriesDef, type SeriesId } from "@/lib/catalog";
 import { formatChange, formatKoreanDate, formatNumber } from "@/lib/format";
-import { readMarketFile } from "@/lib/market";
+import { getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
+import { latestOnOrBefore, pickWeekAgo, stampKey } from "@/lib/market-shared";
 import { fetchEcosSeries } from "@/lib/sources/ecos";
 import { fetchFredSeries } from "@/lib/sources/fred";
 import type { Point } from "@/lib/types";
@@ -15,6 +16,7 @@ import {
   REACTION_CATEGORIES,
   type WeeklyBrief,
   type WeeklyIndicator,
+  type WeeklyMarket,
   type WeeklySource,
 } from "@/lib/weekly-types";
 
@@ -311,7 +313,7 @@ const CATEGORY_RULE = {
 const RawBrief = z.object(BODY_SHAPE).refine(hasAllCategories, CATEGORY_RULE);
 type RawBrief = z.infer<typeof RawBrief>;
 
-const PointSchema = z.object({ date: DateString, value: z.number() });
+const PointSchema = z.object({ date: DateString, value: z.number(), time: z.string().nullable().optional() });
 
 /** Claude Code 가 쓰는 data/weekly-brief.json */
 const FileBrief = z
@@ -393,12 +395,12 @@ function parseBrief(text: string): { brief: RawBrief | null; error: string | nul
 // ───────────────────────── Claude Code 가 만든 파일 ─────────────────────────
 
 /**
- * /weekly 스킬이 결과를 쌓는 폴더. 파일명은 `YYMMDD-weekly-brief.json`(YYMMDD = 실행일, 예 261102).
- * 지난 파일은 지우지 않고 남기며, 화면에는 파일명이 가장 늦은 것만 보여준다.
+ * /weekly 스킬이 결과를 쌓는 폴더. 파일명은 `YYMMDD-HHMM-weekly-brief.json`(실행 날짜·시각 KST, 예 261110-1405).
+ * 시각 없는 옛 이름(`YYMMDD-…`)도 받는다. 지난 파일은 지우지 않고 남기며, 화면에는 접두사가 가장 늦은 것만 보여준다.
  * 배포본에 들어가도록 next.config.ts 가 이 폴더를 함수 번들에 포함한다.
  */
 export const BRIEF_DIR = path.join(process.cwd(), "data");
-const BRIEF_FILE_PATTERN = /^\d{6}-weekly-brief\.json$/;
+const BRIEF_FILE_PATTERN = /^\d{6}(?:-\d{4})?-weekly-brief\.json$/;
 
 function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -414,7 +416,7 @@ async function findLatestBriefFile(): Promise<string | null> {
     throw error;
   }
 
-  const dated = names.filter((name) => BRIEF_FILE_PATTERN.test(name)).sort();
+  const dated = names.filter((name) => BRIEF_FILE_PATTERN.test(name)).sort((a, b) => stampKey(a).localeCompare(stampKey(b)));
   // 접두사 없는 옛 이름도 받아 주되, 날짜 붙은 파일이 하나라도 있으면 그쪽이 우선이다.
   return dated.at(-1) ?? (names.includes("weekly-brief.json") ? "weekly-brief.json" : null);
 }
@@ -658,8 +660,55 @@ type Options = {
 
 export async function getWeeklyBrief(options: Options = {}): Promise<WeeklyBrief> {
   const brief = await resolveBrief(options);
-  // 차트·환율표 자료는 본문과 별도 파일이다 — 같은 날짜 접두사(YYMMDD)의 것을 우선 붙인다.
-  return { ...brief, market: await readMarketFile(brief.file?.slice(0, 6)) };
+  // 차트·환율표 자료는 본문과 별도 파일이다 — 접두사가 가장 늦은 파일을 붙이고, 둘 다 지금 시세로 덧씌운다.
+  // 과거 파일들의 스냅샷 목록은 화면의 "전주比 기준" 드롭다운이 된다.
+  const [market, snapshots] = await Promise.all([readMarketFile(), listMarketSnapshots()]);
+  const result = await attachLive(brief, market);
+  return result.market ? { ...result, market: { ...result.market, snapshots } } : result;
+}
+
+/**
+ * 화면을 여는 시점의 시세를 덧씌운다 — 차트·환율표(기준일을 오늘로)와 지표 각주의 최근치.
+ * 각주의 "한 주 전"은 차트 자료에서(오늘 − 7일 이전 마지막 관측치), 차트에 없는 계열(국고채 3년)은 출처에서 다시 잡는다.
+ * 시세를 못 받으면 파일 그대로 보여준다. (사용자 요청: 08:30 고시·전일 종가가 아니라 지금 값)
+ */
+async function attachLive(brief: WeeklyBrief, market: WeeklyMarket | null): Promise<WeeklyBrief> {
+  const live = await getLiveQuotes();
+  if (!live || !Object.keys(live.quotes).length) return { ...brief, market };
+
+  const today = todayKst();
+  const liveMarket = market ? overlayLiveMarket(market, live, today) : null;
+  const indicators = await Promise.all(
+    brief.indicators.map(async (indicator): Promise<WeeklyIndicator> => {
+      const quote = live.quotes[indicator.id];
+      if (!quote) return indicator;
+      const latest = { date: today, value: quote.value, time: quote.time ?? live.fetchedAt };
+      const chart = liveMarket?.charts.find((c) => c.id === indicator.id);
+      const weekAgo = chart ? pickWeekAgo(chart.points, latest) : await weekAgoFromSource(indicator.id, today);
+      return { ...indicator, latest, weekAgo: weekAgo ?? indicator.weekAgo };
+    })
+  );
+  return { ...brief, indicators, market: liveMarket };
+}
+
+/** 차트 자료에 없는 계열의 "한 주 전" — 출처에서 최근 3주를 받아 오늘 − 7일 이전 마지막 관측치. 30분 캐시. */
+const weekAgoMemo: Map<string, { point: Point | null; expiresAt: number }> = ((globalThis as Record<string, unknown>)
+  .__weeklyWeekAgo ??= new Map()) as Map<string, { point: Point | null; expiresAt: number }>;
+
+async function weekAgoFromSource(id: string, today: string): Promise<Point | null> {
+  if (!(id in SERIES)) return null;
+  const key = `${id}:${today}`;
+  const cached = weekAgoMemo.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.point;
+  try {
+    const points = await fetchRecent(SERIES[id as SeriesId], shiftDate(today, -21), today);
+    const point = latestOnOrBefore(points, shiftDate(today, -7));
+    weekAgoMemo.set(key, { point, expiresAt: Date.now() + 30 * 60 * 1000 });
+    return point;
+  } catch (error) {
+    console.warn(`[weekly] ${id} 한 주 전 값 조회 실패:`, error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 async function resolveBrief({ force = false }: Options): Promise<WeeklyBrief> {

@@ -5,7 +5,9 @@ import {
   FX_SPECS,
   annotationBelow,
   dateFraction,
+  formatKstTime,
   formatSignedPct,
+  formatSnapshotLabel,
   formatTickDate,
   formatValue,
   formatWeekChange,
@@ -492,7 +494,8 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
     .sort()
     .at(-1);
   putMerged(ROW_FX, 0, 2, "(+ 절상, − 절하)", STYLE.fxHeadFirst);
-  putMerged(ROW_FX + 1, 0, 2, fxAsOf ? `${formatTickDate(fxAsOf)}일(08:30 기준)` : "최근", STYLE.fxLabel);
+  const fxLiveTime = market.liveAt && market.fx.items.some((item) => item.live) ? formatKstTime(market.liveAt) : null;
+  putMerged(ROW_FX + 1, 0, 2, fxAsOf ? `${formatTickDate(fxAsOf)}일(${fxLiveTime ? `${fxLiveTime} 현재` : "08:30 기준"})` : "최근", STYLE.fxLabel);
   putMerged(ROW_FX + 2, 0, 2, `${market.fx.baselineLabel}(${formatTickDate(market.fx.baselineDate)}일)比`, STYLE.fxLabel);
   FX_SPECS.forEach((spec, i) => {
     const from = 3 + i * 3;
@@ -513,9 +516,13 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
     .filter((chart) => chart.overrideDates.length)
     .map((chart) => `${CHART_SPECS.find((s) => s.id === chart.id)?.title ?? chart.id} ${chart.overrideDates.join("·")}`);
   const notes = [
-    `기준일 ${market.asOf} (창 ${market.windowStart} ~ ${market.asOf}) · 생성 ${market.generatedAt.slice(0, 16).replace("T", " ")} UTC`,
-    "자료: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율). 달러인덱스는 ICE 산식으로 ECOS 6개 통화 환율에서 계산.",
-    "환율표는 한국은행 고시 환율(08:30) 기준. 위안은 원/달러 ÷ 원/위안 교차환율. 전주비는 지난주 같은 요일 대비(금리는 %p).",
+    `기준일 ${market.asOf} (창 ${market.windowStart} ~ ${market.asOf}) · 생성 ${market.generatedAt.slice(0, 16).replace("T", " ")} UTC${
+      market.liveAt ? ` · 최근치는 ${formatKstTime(market.liveAt)} KST 시세(CNBC 시세 · 네이버 금융)` : ""
+    }`,
+    "1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美 10년물은 재무부 일별 금리표로 보충. WTI 최근치는 선물 근월물.",
+    `환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은 ICE 산식으로 계산, 위안은 원/달러 ÷ 원/위안 교차환율. 전주比는 ${
+      market.compareBase ? `${formatSnapshotLabel(market.compareBase.at)} 보고 시점 값 대비` : "지난주 같은 요일 대비"
+    }(금리는 %p).`,
     ...(overridden.length ? [`기사에서 확인한 종가(출처 집계 전): ${overridden.join(", ")}`] : []),
     `세로 연파랑 띠: ${market.event.label} ${market.event.note}. 1년치 원자료는 "${DATA_SHEET}" 시트.`,
   ];

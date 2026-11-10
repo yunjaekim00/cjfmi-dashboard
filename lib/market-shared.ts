@@ -12,6 +12,9 @@
 
 export type MarketPoint = { date: string; value: number };
 
+/** 최근치를 /weekly 실행 시점 시세로 채웠을 때 그 시각(ISO)과 출처. 집계치(FRED·ECOS)면 없다. */
+export type LiveQuote = { time: string | null; source: string };
+
 export const MARKET_CHART_IDS = ["sp500", "kospi", "usdkrw", "ust10", "ktb10", "wti"] as const;
 export type MarketChartId = (typeof MARKET_CHART_IDS)[number];
 
@@ -25,6 +28,8 @@ export type MarketChart = {
   latest: MarketPoint | null;
   /** latest 보다 7일 이상 앞선 마지막 관측치 — 지난주 같은 요일 */
   weekAgo: MarketPoint | null;
+  /** latest 가 실행 시점 시세(기준일 날짜)이면 그 시각·출처 */
+  live?: LiveQuote | null;
   /** 원 출처에 아직 없어서 /weekly 가 기사에서 확인해 넣은 날짜들 */
   overrideDates: string[];
   /** 자료를 못 받았을 때 그 사유 */
@@ -37,6 +42,21 @@ export type MarketFxItem = {
   baseline: MarketPoint | null;
   /** 그 통화의 달러 대비 절상(+)·절하(−) 율, % */
   changePct: number | null;
+  /** latest 가 실행 시점 시세이면 그 시각·출처 */
+  live?: LiveQuote | null;
+};
+
+/**
+ * 보고 시점 스냅샷 — /weekly(스크립트)가 market 파일을 쓸 때의 계열별 값.
+ * 화면의 "전주比 기준" 드롭다운에서 고르면 차트·각주의 변동이 이 값 대비로 계산된다 (보고 요일이 매주 달라서).
+ */
+export type MarketSnapshot = {
+  /** 파일명 접두사 "YYMMDD-HHMM" (옛 파일은 "YYMMDD") */
+  prefix: string;
+  /** 값을 받은 시각(ISO) */
+  at: string;
+  /** 계열 id → 값 (차트 6개 · 환율표 계열 · 국고채 3년) */
+  values: Record<string, number>;
 };
 
 export type WeeklyMarket = {
@@ -45,12 +65,20 @@ export type WeeklyMarket = {
   /** 창의 시작 — 1년 전 다음 날 */
   windowStart: string;
   generatedAt: string;
+  /** 실행 시점 시세를 받은 시각(ISO). 안 받았으면(과거 기준일·--no-live) null */
+  liveAt?: string | null;
   /** 서버가 읽은 파일명 (예 "261102-weekly-market.json") */
   file?: string;
   /** 차트마다 세로 띠로 표시하는 사건 */
   event: { date: string; label: string; note: string };
   charts: MarketChart[];
   fx: { baselineDate: string; baselineLabel: string; items: MarketFxItem[] };
+  /** 이 파일을 쓸 때의 계열별 값 — 다음 보고의 전주比 기준이 된다 */
+  snapshot?: { at: string; values: Record<string, number> } | null;
+  /** 서버가 붙이는 과거 스냅샷 목록(시각 오름차순) — 화면의 "전주比 기준" 드롭다운 */
+  snapshots?: MarketSnapshot[];
+  /** 적용한 비교 기준(엑셀). 화면은 브라우저에서 같은 계산을 한다 */
+  compareBase?: { prefix: string; at: string } | null;
 };
 
 // ───────────────────────── 정의 ─────────────────────────
@@ -72,10 +100,10 @@ export type ChartSpec = {
 export const CHART_SPECS: ChartSpec[] = [
   { id: "sp500", title: "S&P500", unitLabel: "(41~43년 평균=10)", digits: 0, prefix: "", suffix: "", changeStyle: "pct", source: "FRED SP500" },
   { id: "kospi", title: "KOSPI", unitLabel: "(80.1.4일=100)", digits: 0, prefix: "", suffix: "", changeStyle: "pct", source: "한국은행 ECOS 802Y001" },
-  { id: "usdkrw", title: "원달러 환율", unitLabel: "(원/달러)", digits: 0, prefix: "", suffix: "원", changeStyle: "pct", source: "한국은행 ECOS 731Y001 매매기준율" },
+  { id: "usdkrw", title: "원달러 환율", unitLabel: "(원/달러)", digits: 0, prefix: "", suffix: "원", changeStyle: "pct", source: "한국은행 ECOS 731Y001 매매기준율 · 최근치 CNBC KRW= 현물" },
   { id: "ust10", title: "美 국채 10년물 금리", unitLabel: "(%)", digits: 2, prefix: "", suffix: "%", changeStyle: "pp", source: "FRED DGS10" },
   { id: "ktb10", title: "韓 국채 10년물 금리", unitLabel: "(%)", digits: 2, prefix: "", suffix: "%", changeStyle: "pp", source: "한국은행 ECOS 817Y002" },
-  { id: "wti", title: "WTI", unitLabel: "($/BBL)", digits: 1, prefix: "$", suffix: "", changeStyle: "pct", source: "FRED DCOILWTICO (EIA 쿠싱 현물)" },
+  { id: "wti", title: "WTI", unitLabel: "($/BBL)", digits: 1, prefix: "$", suffix: "", changeStyle: "pct", source: "FRED DCOILWTICO (EIA 쿠싱 현물) · 최근치 CNBC @CL.1 선물 근월물" },
 ];
 
 export type FxSpec = {
@@ -94,12 +122,22 @@ export type FxSpec = {
 
 export const FX_SPECS: FxSpec[] = [
   { id: "krw", label: "원화", digits: 0, prefix: "", suffix: "원", quote: "perUsd", source: "ECOS 731Y001 원/달러 매매기준율" },
-  { id: "dxy", label: "달러화", digits: 1, prefix: "", suffix: "", quote: "index", source: "ICE 달러인덱스 산식으로 ECOS 731Y002 6개 통화에서 계산" },
+  { id: "dxy", label: "달러화", digits: 1, prefix: "", suffix: "", quote: "index", source: "최근치 CNBC .DXY · 비교 시점은 ICE 산식으로 ECOS 731Y002 6개 통화에서 계산" },
   { id: "eur", label: "유로화", digits: 2, prefix: "$", suffix: "", quote: "usdPer", source: "ECOS 731Y002 달러/유로" },
   { id: "jpy", label: "엔화", digits: 1, prefix: "", suffix: "엔", quote: "perUsd", source: "ECOS 731Y002 엔/달러" },
   { id: "cny", label: "위안화", digits: 2, prefix: "", suffix: "위안", quote: "perUsd", source: "원/달러 ÷ 원/위안 매매기준율 (ECOS 731Y001)" },
   { id: "vnd", label: "베트남 동", digits: 0, prefix: "", suffix: "동", quote: "perUsd", source: "ECOS 731Y002 동/달러" },
 ];
+
+/** 환율표 항목 → 자료 계열 id (scripts/weekly-market.mjs 의 캐시 키이자 시세 조회 id) */
+export const FX_SERIES: Record<MarketFxId, string> = {
+  krw: "usdkrw",
+  dxy: "dxy",
+  eur: "eurusd",
+  jpy: "usdjpy",
+  cny: "usdcny",
+  vnd: "usdvnd",
+};
 
 /** 차트마다 연한 파란 세로 띠로 표시하는 사건. 바꾸면 다음 /weekly 부터 반영된다. */
 export const MARKET_EVENT = { date: "2026-02-28", label: "이스라엘 이란 공습", note: "(26/2/28)" };
@@ -160,6 +198,49 @@ export function marketWindow(asOf: string): { windowStart: string; ticks: string
 export function formatTickDate(date: string): string {
   const [, m, d] = date.split("-");
   return `${Number(m)}/${Number(d)}`;
+}
+
+/** 파일명 접두사 "261110-1405" → 정렬 키 "2611101405". 시각 없는 옛 접두사는 그날 맨 앞("0000"). */
+export function stampKey(name: string): string {
+  const match = /^(\d{6})(?:-(\d{4}))?/.exec(name);
+  return match ? `${match[1]}${match[2] ?? "0000"}` : "";
+}
+
+/** ISO 시각의 KST 날짜 "YYYY-MM-DD" */
+export function kstDateOf(iso: string): string {
+  return new Date(Date.parse(iso) + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** ISO 시각 → "11/3(화) 16:50" (KST) — 스냅샷 드롭다운 표기 */
+export function formatSnapshotLabel(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const kst = new Date(ms + 9 * 60 * 60 * 1000);
+  const hh = String(kst.getUTCHours()).padStart(2, "0");
+  const mm = String(kst.getUTCMinutes()).padStart(2, "0");
+  return `${kst.getUTCMonth() + 1}/${kst.getUTCDate()}(${WEEKDAY_KO[kst.getUTCDay()]}) ${hh}:${mm}`;
+}
+
+/** 기본 비교 기준 — 기준일(오늘)보다 앞선 날의 가장 최근 스냅샷. 오늘 만든 파일(이번 보고·테스트)은 빼기 위해서다. */
+export function defaultSnapshot(snapshots: MarketSnapshot[], asOf: string): MarketSnapshot | null {
+  let found: MarketSnapshot | null = null;
+  for (const snapshot of snapshots) if (kstDateOf(snapshot.at) < asOf) found = snapshot;
+  return found;
+}
+
+/** 스냅샷을 비교점(weekAgo 자리)으로 — 그 계열 값이 없으면 null */
+export function snapshotPoint(snapshot: MarketSnapshot | null | undefined, id: string): MarketPoint | null {
+  const value = snapshot?.values[id];
+  return snapshot && value !== undefined ? { date: kstDateOf(snapshot.at), value } : null;
+}
+
+/** ISO 시각 → "12:21" (KST). 실행 시점 시세의 시각 표기. */
+export function formatKstTime(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Seoul" });
 }
 
 /** 날짜 문자열 → 창 안의 비율(0~1). 거래일이 아니라 달력일 기준이라 주말은 빈 칸으로 남는다. */
@@ -263,9 +344,10 @@ export function formatAxisValue(value: number, decimals: number): string {
   return fixed(value, decimals);
 }
 
-/** 부호를 앞에 붙인다. 음수 부호는 보고서처럼 U+2212. */
+/** 부호를 앞에 붙인다. 음수 부호는 보고서처럼 U+2212. 반올림해서 0 이 되면 부호를 붙이지 않는다 ("−0.00%p" 방지). */
 export function formatSignedPct(value: number, digits: number, unit: string): string {
-  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  const shown = Number(Math.abs(value).toFixed(digits));
+  const sign = shown === 0 ? "" : value > 0 ? "+" : "−";
   return `${sign}${fixed(Math.abs(value), digits)}${unit}`;
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 주요국 금융시장 동향 — 차트 6개(최근 1년)와 환율표 자료를 모아 data/<YYMMDD>-weekly-market.json 을 쓴다.
+ * 주요국 금융시장 동향 — 차트 6개(최근 1년)와 환율표 자료를 모아 data/<YYMMDD-HHMM>-weekly-market.json 을 쓴다
+ * (접두사 = 실행 날짜·시각 KST. 실행마다 새 파일이 생기고, 파일마다 그때의 값이 `snapshot` 으로 남아 다음 보고의 전주比 기준이 된다).
  * Claude Code 의 /weekly 스킬이 실행한다. 차트 정의·계산은 lib/market-shared.ts 와 공유한다
  * (Node 22.18+/24 는 .ts 를 플래그 없이 읽는다).
  *
@@ -9,21 +10,28 @@
  *   node scripts/weekly-market.mjs --set sp500=2026-10-30:7580.07 --set wti=2026-10-30:104.12
  *       # 출처(FRED)에 아직 안 올라온 종가를 기사에서 확인해 넣는다. 캐시에 남아 다음 실행에도 쓰이고,
  *       # 출처에 그 날짜가 올라오면 출처 값이 이긴다. 대상: 차트 6개 + dxy·usdcny(파생) + 환율 구성 계열
- *   node scripts/weekly-market.mjs --offline                     # 받지 않고 캐시만으로 다시 만든다
+ *   node scripts/weekly-market.mjs --offline                     # 받지 않고 캐시만으로 다시 만든다 (실시간 시세도 안 받는다)
+ *   node scripts/weekly-market.mjs --no-live                     # 실시간 시세 없이 집계치(FRED·ECOS)만으로
  *   node scripts/weekly-market.mjs --baseline 2026-02-27         # 환율표 비교 시점 (기본: 전쟁직전 2/27)
+ *   node scripts/weekly-market.mjs --out /tmp/x.json             # 쓸 파일 경로 지정 (기본 data/<YYMMDD>-weekly-market.json)
  *
  * 자료는 data/market-history.json 에 쌓아 둔다(14개월 + 비교 시점). 실행할 때마다 계열별 마지막 관측일의
  * 2주 전부터만 다시 받으므로 1년치를 매번 처음부터 받지 않는다.
- * 출처: FRED(S&P 500 · 美 10년물 · WTI), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율). .env.local 의 ECOS_API_KEY 필요.
+ * 이력 출처: FRED(S&P 500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율). .env.local 의 ECOS_API_KEY 필요.
+ *   보충: 美 10년물은 재무부 일별 금리표(FRED 보다 하루 빠름), KOSPI 는 네이버 일별 시세(ECOS 보다 하루 빠름).
+ * 최근치: 기준일이 오늘이면 차트 6개와 환율표 6개의 최근치를 실행 시점 시세로 채운다 (scripts/lib/live-quotes.mjs —
+ *   CNBC 시세 JSON · 네이버 금융, 키 없음). 시세는 캐시에 넣지 않으며, 그 날짜의 집계치가 올라오면 다음 실행부터 자연히 대체된다.
+ *   못 받은 계열은 집계치가 최근치가 되고 ⚠ 로 알린다. WTI 시세는 선물 근월물이라 현물 이력과 기준이 다르다.
  *
- * stdout: 쓴 파일 경로. stderr: 읽기 좋은 표와 경고(출처가 늦어 최근치가 오래됐으면 --set 안내).
+ * stdout: 쓴 파일 경로. stderr: 읽기 좋은 표와 경고(시세 실패 · 출처가 늦어 최근치가 오래됐으면 --set 안내).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import {
   CHART_SPECS,
   DXY_WEIGHTS,
   FX_BASELINE,
+  FX_SERIES,
   FX_SPECS,
   MARKET_EVENT,
   addMonthsClamped,
@@ -38,6 +46,7 @@ import {
   pickWeekAgo,
   shiftDays,
 } from "../lib/market-shared.ts";
+import { fetchLiveQuotes, fetchNaverIndexHistory, fetchTreasury10y } from "./lib/live-quotes.mjs";
 
 // ── .env.local (있으면) ──
 try {
@@ -78,25 +87,67 @@ const RAW = {
 /** 원 출처 계열에서 계산하는 계열. --set 덮어쓰기는 받는다. */
 const DERIVED = ["dxy", "usdcny"];
 
-/** 환율표 항목 → 계열 */
-const FX_SERIES = { krw: "usdkrw", dxy: "dxy", eur: "eurusd", jpy: "usdjpy", cny: "usdcny", vnd: "usdvnd" };
-
 // ───────────────────────── 인자 ─────────────────────────
 
 function todayKst() {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+/** 지금 시각 "HHMM" (KST) — 파일명 접두사용 */
+function nowHhmmKst() {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16).replace(":", "");
+}
+
+/** 파일명 접두사 → 정렬 키 (시각 없는 옛 접두사는 "0000") */
+function stampKey(name) {
+  const match = /^(\d{6})(?:-(\d{4}))?/.exec(name);
+  return match ? `${match[1]}${match[2] ?? "0000"}` : "";
+}
+
+/**
+ * 지난 보고 스냅샷 — data/ 의 market 파일 중 기준일보다 앞선 날의 가장 최근 것. 화면의 "전주比 기준" 기본값과 같다.
+ * 스냅샷 절이 없는 옛 파일은 차트·환율표 최근치로 대신한다.
+ */
+function previousSnapshot(asOf) {
+  let names = [];
+  try {
+    names = readdirSync("data")
+      .filter((name) => /^\d{6}(?:-\d{4})?-weekly-market\.json$/.test(name))
+      .sort((a, b) => stampKey(a).localeCompare(stampKey(b)));
+  } catch {
+    return null;
+  }
+  for (const name of names.reverse()) {
+    try {
+      const file = JSON.parse(readFileSync(`data/${name}`, "utf8"));
+      const at = file.snapshot?.at ?? file.liveAt ?? file.generatedAt;
+      const date = new Date(Date.parse(at) + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (!(date < asOf)) continue;
+      const values = { ...(file.snapshot?.values ?? {}) };
+      if (!file.snapshot) {
+        for (const chart of file.charts ?? []) if (chart.latest) values[chart.id] = chart.latest.value;
+        for (const item of file.fx?.items ?? []) if (item.latest) values[FX_SERIES[item.id]] = item.latest.value;
+      }
+      return { prefix: name.replace(/-weekly-market\.json$/, ""), at, values };
+    } catch {
+      // 깨진 파일은 건너뛴다
+    }
+  }
+  return null;
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseArgs(argv) {
-  const args = { asOf: null, sets: [], offline: false, baseline: null };
+  const args = { asOf: null, sets: [], offline: false, baseline: null, noLive: false, out: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--as-of") args.asOf = argv[++i];
     else if (arg === "--set") args.sets.push(argv[++i]);
     else if (arg.startsWith("--set=")) args.sets.push(arg.slice("--set=".length));
     else if (arg === "--offline") args.offline = true;
+    else if (arg === "--no-live") args.noLive = true;
+    else if (arg === "--out") args.out = argv[++i];
     else if (arg === "--baseline") args.baseline = argv[++i];
     else if (DATE_RE.test(arg)) args.asOf = arg;
     else throw new Error(`알 수 없는 인자: ${arg}`);
@@ -114,7 +165,15 @@ function parseArgs(argv) {
     return { id, date, value };
   });
 
-  return { asOf: args.asOf ?? todayKst(), overrides, offline: args.offline, baseline: args.baseline ?? FX_BASELINE.date };
+  if (args.out !== null && !args.out) throw new Error("--out 뒤에 파일 경로가 필요합니다");
+  return {
+    asOf: args.asOf ?? todayKst(),
+    overrides,
+    offline: args.offline,
+    noLive: args.noLive,
+    out: args.out,
+    baseline: args.baseline ?? FX_BASELINE.date,
+  };
 }
 
 // ───────────────────────── 캐시 ─────────────────────────
@@ -185,6 +244,15 @@ async function fetchEcos({ statCode, itemCode1 }, since, until) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/**
+ * 원 출처보다 빨리 올라오는 보충 출처. 원 출처에 아직 없는 날짜만 더한다 (같은 공식 종가라 캐시에 넣는다).
+ * 오늘 날짜는 넣지 않는다 — 장중치일 수 있고, 오늘은 실행 시점 시세가 맡는다.
+ */
+const SUPPLEMENTS = {
+  ust10: { label: "재무부 금리표", fetch: (since, today) => fetchTreasury10y(since, shiftDays(today, -1)) },
+  kospi: { label: "네이버 일별", fetch: () => fetchNaverIndexHistory("KOSPI") },
+};
+
 /** 계열 하나를 캐시에 이어 받는다. 실패해도 캐시는 남긴다. */
 async function refresh(cache, id, keepFrom, today) {
   const def = RAW[id];
@@ -192,8 +260,20 @@ async function refresh(cache, id, keepFrom, today) {
   const last = entry.points.at(-1)?.date;
   const since = last ? shiftDays(last, -REFETCH_DAYS) : keepFrom;
 
+  let note = "";
   try {
     const fresh = def.source === "fred" ? await fetchFred(def.seriesId, since) : await fetchEcos(def, since, today);
+    const supplement = SUPPLEMENTS[id];
+    if (supplement) {
+      try {
+        const have = new Set(fresh.map((p) => p.date));
+        const extra = (await supplement.fetch(since, today)).filter((p) => p.date >= since && p.date < today && !have.has(p.date));
+        fresh.push(...extra);
+        if (extra.length) note = ` (+${supplement.label} ${extra.length}건)`;
+      } catch (error) {
+        note = ` (${supplement.label} 실패: ${error instanceof Error ? error.message : error})`;
+      }
+    }
     const byDate = new Map(entry.points.map((p) => [p.date, p.value]));
     let added = 0;
     for (const point of fresh) {
@@ -206,7 +286,7 @@ async function refresh(cache, id, keepFrom, today) {
       .map(([date, value]) => ({ date, value }));
     entry.fetchedAt = new Date().toISOString();
     delete entry.error;
-    return `✓ ${added}건 추가`;
+    return `✓ ${added}건 추가${note}`;
   } catch (error) {
     entry.error = error instanceof Error ? error.message : String(error);
     return `✗ ${entry.error}${entry.points.length ? " (캐시 사용)" : ""}`;
@@ -264,6 +344,13 @@ function fmtDate(date) {
   return date.slice(5).replace("-", "-");
 }
 
+/** ISO 시각 → "12:21" (KST) */
+function fmtTime(iso) {
+  const ms = Date.parse(iso ?? "");
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Seoul" });
+}
+
 function daysBetween(a, b) {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
@@ -271,7 +358,7 @@ function daysBetween(a, b) {
 // ───────────────────────── main ─────────────────────────
 
 async function main() {
-  const { asOf, overrides, offline, baseline } = parseArgs(process.argv.slice(2));
+  const { asOf, overrides, offline, noLive, out, baseline } = parseArgs(process.argv.slice(2));
   const today = todayKst();
   const { windowStart, ticks } = marketWindow(asOf);
   // 비교 시점(전쟁직전)이 창 밖으로 밀려나도 남아 있도록 보존 구간을 그만큼 넓힌다.
@@ -304,12 +391,34 @@ async function main() {
 
   deriveSeries(cache);
 
+  // ── 실행 시점 시세 (기준일이 오늘일 때만 — 과거 기준일을 다시 만들 땐 집계치만) ──
+  const liveWanted = asOf === today && !offline && !noLive;
+  let live = { quotes: {}, errors: {}, fetchedAt: null };
+  if (liveWanted) {
+    // 국고채 3년은 차트에 없지만 각주 기준(스냅샷)에 들어간다
+    const ids = [...new Set([...CHART_SPECS.map((spec) => spec.id), ...Object.values(FX_SERIES), "ktb3"])];
+    live = await fetchLiveQuotes(ids);
+  } else if (!offline && !noLive) {
+    console.error(`기준일 ${asOf} 이 오늘(${today})이 아니라 실시간 시세는 붙이지 않습니다.`);
+  }
+  /** 시세가 있으면 기준일 날짜의 점으로 끝에 붙인다 (같은 날짜의 집계치 — 예: 08:30 고시 — 는 시세로 바꾼다) */
+  const withLive = (points, id) => {
+    const quote = live.quotes[id];
+    if (!quote) return { points, live: null };
+    return {
+      points: [...points.filter((p) => p.date !== asOf), { date: asOf, value: quote.value, live: true }],
+      live: { time: quote.time, source: quote.source },
+    };
+  };
+  const fmtLive = (info) => (info?.time ? `${fmtTime(info.time)} 시세` : "시세");
+
   // ── 차트 ──
   const warnings = [];
-  const chartRows = ["| 차트 | 최근 | 지난주 | 전주비 | 출처 |", "|---|---|---|---|---|"];
+  const previous = previousSnapshot(asOf);
+  const chartRows = ["| 차트 | 최근 | 지난주 | 전주비(7일) | 지난 보고比 | 출처 |", "|---|---|---|---|---|---|"];
   const charts = CHART_SPECS.map((spec) => {
     const entry = entryFor(cache, spec.id);
-    const all = effectivePoints(entry).filter((p) => p.date <= asOf);
+    const { points: all, live: liveInfo } = withLive(effectivePoints(entry).filter((p) => p.date <= asOf), spec.id);
     const points = all.filter((p) => p.date >= windowStart);
     const latest = points.at(-1) ?? null;
     const weekAgo = pickWeekAgo(all, latest);
@@ -320,18 +429,27 @@ async function main() {
       points: points.map(({ date, value }) => ({ date, value })),
       latest: latest ? { date: latest.date, value: latest.value } : null,
       weekAgo: weekAgo ? { date: weekAgo.date, value: weekAgo.value } : null,
+      live: liveInfo,
       overrideDates,
     };
     if (!points.length) chart.error = entry.error ?? "자료 없음";
 
-    const sourceNote = `${entry.source ?? ""} ${fetchLog[spec.id] ?? (offline ? "(캐시)" : "")}`.trim();
+    const sourceNote = `${entry.source ?? ""} ${fetchLog[spec.id] ?? (offline ? "(캐시)" : "")}${liveInfo ? ` · 최근치 ${liveInfo.source}` : ""}`.trim();
+    const latestNote = latest ? (latest.live ? `, ${fmtLive(liveInfo)}` : latest.override ? ", 덮어쓰기" : "") : "";
     chartRows.push(
-      `| ${spec.title} | ${latest ? `${formatValue(spec, latest.value)} (${fmtDate(latest.date)}${latest.override ? ", 덮어쓰기" : ""})` : "-"} | ${
+      `| ${spec.title} | ${latest ? `${formatValue(spec, latest.value)} (${fmtDate(latest.date)}${latestNote})` : "-"} | ${
         weekAgo ? `${formatValue(spec, weekAgo.value)} (${fmtDate(weekAgo.date)})` : "-"
-      } | ${latest && weekAgo ? formatWeekChange(spec, latest, weekAgo) : "-"} | ${sourceNote} |`
+      } | ${latest && weekAgo ? formatWeekChange(spec, latest, weekAgo) : "-"} | ${
+        latest && previous && previous.values[spec.id] !== undefined
+          ? formatWeekChange(spec, latest, { date: previous.at.slice(0, 10), value: previous.values[spec.id] })
+          : "-"
+      } | ${sourceNote} |`
     );
 
-    if (latest && daysBetween(latest.date, asOf) > STALE_DAYS) {
+    if (liveWanted && !liveInfo) {
+      warnings.push(`${spec.title}: 실시간 시세를 못 받아 집계치를 최근치로 씁니다 — ${live.errors[spec.id] ?? "원인 불명"}`);
+    }
+    if (latest && !latest.live && daysBetween(latest.date, asOf) > STALE_DAYS) {
       warnings.push(
         `${spec.title}: 최근치가 ${latest.date} — 기준일보다 ${daysBetween(latest.date, asOf)}일 전입니다. 기사에서 그 뒤 종가를 확인했으면 --set ${spec.id}=YYYY-MM-DD:값 으로 넣으세요.`
       );
@@ -344,45 +462,65 @@ async function main() {
   const fxRows = ["| 통화 | 최근 | 비교 시점 | 절상(+)/절하(−) |", "|---|---|---|---|"];
   const items = FX_SPECS.map((spec) => {
     const entry = entryFor(cache, FX_SERIES[spec.id]);
-    const all = effectivePoints(entry).filter((p) => p.date <= asOf);
+    const { points: all, live: liveInfo } = withLive(effectivePoints(entry).filter((p) => p.date <= asOf), FX_SERIES[spec.id]);
     const latest = all.at(-1) ?? null;
     const base = latestOnOrBefore(all, baseline);
     const changePct = latest && base ? round(appreciationPct(spec, latest.value, base.value), 2) : null;
     fxRows.push(
-      `| ${spec.label} | ${latest ? `${formatValue(spec, latest.value)} (${fmtDate(latest.date)})` : "-"} | ${
+      `| ${spec.label} | ${latest ? `${formatValue(spec, latest.value)} (${fmtDate(latest.date)}${latest.live ? `, ${fmtLive(liveInfo)}` : ""})` : "-"} | ${
         base ? `${formatValue(spec, base.value)} (${fmtDate(base.date)})` : "-"
       } | ${changePct === null ? "-" : formatSignedPct(changePct, 1, "%")} |`
     );
     if (!latest) warnings.push(`환율표 ${spec.label}: 자료 없음 (${entry.error ?? "계산 불가"})`);
+    else if (liveWanted && !liveInfo) {
+      warnings.push(`환율표 ${spec.label}: 실시간 시세를 못 받아 집계치(${latest.date})를 씁니다 — ${live.errors[FX_SERIES[spec.id]] ?? "원인 불명"}`);
+    }
     return {
       id: spec.id,
       latest: latest ? { date: latest.date, value: latest.value } : null,
       baseline: base ? { date: base.date, value: base.value } : null,
       changePct,
+      live: liveInfo,
     };
   });
 
-  const snapshot = {
+  // 이 파일을 쓸 때의 값 — 다음 보고의 전주比 기준. 시세가 없으면(--no-live·과거 기준일) 차트·환율표의 최근치.
+  const snapshotValues = {};
+  for (const chart of charts) if (chart.latest) snapshotValues[chart.id] = chart.latest.value;
+  for (const item of items) if (item.latest) snapshotValues[FX_SERIES[item.id]] = item.latest.value;
+  for (const [id, quote] of Object.entries(live.quotes)) snapshotValues[id] = quote.value;
+
+  const output = {
     asOf,
     windowStart,
     generatedAt: new Date().toISOString(),
+    liveAt: live.fetchedAt,
     event: MARKET_EVENT,
     charts,
     fx: { baselineDate: baseline, baselineLabel: FX_BASELINE.label, items },
+    snapshot: { at: live.fetchedAt ?? new Date().toISOString(), values: snapshotValues },
   };
 
-  const outFile = `data/${asOf.slice(2).replaceAll("-", "")}-weekly-market.json`;
-  writeFileSync(outFile, `${JSON.stringify(snapshot, null, 2)}\n`);
+  const stamp = `${asOf.slice(2).replaceAll("-", "")}-${nowHhmmKst()}`;
+  const outFile = out ?? `data/${stamp}-weekly-market.json`;
+  writeFileSync(outFile, `${JSON.stringify(output, null, 2)}\n`);
 
   cache.updatedAt = new Date().toISOString();
   writeFileSync(CACHE_FILE, `${JSON.stringify(cache)}\n`);
 
   console.error(`기준일 ${asOf} · 창 ${windowStart} ~ ${asOf} · 눈금 ${ticks.map(formatTickDate).join(" · ")}`);
+  if (live.fetchedAt) {
+    const got = Object.keys(live.quotes).length;
+    console.error(
+      `실행 시점 시세 ${got}/${got + Object.keys(live.errors).length}개 계열 (${fmtTime(live.fetchedAt)} KST · CNBC 시세 JSON · 네이버 금융) — 캐시에는 넣지 않는다`
+    );
+  }
   console.error(chartRows.join("\n"));
   console.error(`\n환율표 — ${FX_BASELINE.label}(${fmtDate(baseline)})比`);
   console.error(fxRows.join("\n"));
   if (warnings.length) console.error(`\n${warnings.map((w) => `⚠ ${w}`).join("\n")}`);
-  console.error(`\n→ ${outFile} 저장 · 캐시 ${CACHE_FILE} 갱신`);
+  if (previous) console.error(`\n지난 보고 스냅샷: ${previous.prefix} (${fmtTime(previous.at)} KST) — 화면 "전주比 기준"의 기본값. 표의 "지난 보고比"가 그 대비.`);
+  console.error(`\n→ ${outFile} 저장 · 캐시 ${CACHE_FILE} 갱신 · 접두사 ${stamp}`);
   console.log(outFile);
 }
 

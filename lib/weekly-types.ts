@@ -26,7 +26,8 @@ export type WeeklyIndicator = {
   digits: number;
   /** 직전 주 변동 표기 방식 — 금리는 bp, 나머지는 절대값+% */
   changeStyle: "bp" | "pct";
-  latest: { date: string; value: number };
+  /** 최근치. time 이 있으면 /weekly 실행 시점 시세(ISO 시각)다. */
+  latest: { date: string; value: number; time?: string | null };
   /** 한 주 전(대상 기간 시작일 이전 마지막 관측치). 자료가 짧으면 null. */
   weekAgo: { date: string; value: number } | null;
 };

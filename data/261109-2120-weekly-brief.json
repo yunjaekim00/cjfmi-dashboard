@@ -1,0 +1,200 @@
+{
+  "weekStart": "2026-11-02",
+  "weekEnd": "2026-11-08",
+  "generatedAt": "2026-11-09T12:20:00Z",
+  "model": "claude-code",
+  "issue": {
+    "headline": "美 중간선거 민주당 석권發 AI 데이터센터 규제 우려에 美 기술주 급락(나스닥100 5일 −6.4%), KOSPI 주간 11.7% 폭락",
+    "points": [
+      "美·이란 협상 진전 기대(이란, 카타르 통해 핵 제안 전달)에 유가 2022년 이후 최대 주간 낙폭, WTI 90달러대",
+      "美 10월 고용 +16.5만(예상 7만)·실업률 4.1%, 연준 인사 추가 인상 발언 속 12월 인상 확률 78%로 재상승"
+    ]
+  },
+  "reaction": {
+    "headline": "AI 규제 우려發 美·韓 증시 급락에 금리 {{↓}}·원달러 {{↑}}, 美·이란 협상 기대에 유가 {{↓}}",
+    "items": [
+      {
+        "category": "주가",
+        "text": "{{S&P500}}은 AI 규제 우려에 5일 4.4% 급락해 주간 {{2.7% 하락}}, {{KOSPI}}는 외국인 반도체 투매(11조)·서킷브레이커 속 {{11.7% 급락}}"
+      },
+      {
+        "category": "금리",
+        "text": "{{美}}는 증시 급락發 안전자산 수요로 10년물 {{4.86% 하락}}(주간 −8bp), 고용 호조에 6일 반등, {{韓}}도 3년물 {{3.61% 하락}}(−10bp)"
+      },
+      {
+        "category": "외환",
+        "text": "{{원달러}}는 외국인 주식 순매도(6일 연속)·위험회피에 6일 1,356.6원(마감가, 10/1 이후 최고)으로 {{급등}}, 고시 기준 주간 +6.7원"
+      },
+      {
+        "category": "원자재",
+        "text": "{{WTI}}는 美·이란 협상 기대에 {{90달러대 하락}}(6일 90.8, 2022년 이후 최대 주간 낙폭), 호르무즈 유조선 피격 지속에도 낙폭 확대"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "title": "[11.9] 미국 백악관과 민주당, 데이터센터 정책 충돌. 10월 소비자물가는 상승 둔화 예상 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37692&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-09"
+    },
+    {
+      "title": "[11.7] 미국 10월 비농업고용지수, 예상을 상회하며 견조하게 증가 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37689&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-07"
+    },
+    {
+      "title": "[11.6] 미국 나스닥지수, 큰 폭 하락. 데이터센터 건설 불확실성에 AI 우려 급증 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37684&mn=001002&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "최근 국내 주가 변동성 확대에 대한 해외시각(11.6)",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37688&mn=001005&pe=002015&skey=&sval=&pg=1&pp=10",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "AI Stocks Rebound After $2.3 Trillion Tech Selloff Wipes Out Market Value",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-06/ai-stocks-rebound-as-investors-weigh-whether-selloff-is-over",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "US Job Growth Beats Forecasts With 165,000 Added, Unemployment Drops",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-06/us-adds-165-000-jobs-above-all-forecasts-as-unemployment-falls",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "Oil prices tumble for the week as investors weigh Iran conflict risk after midterm elections",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/06/oil-price-today-brent-wti.html",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "Oil Posts Biggest Weekly Drop Since 2022",
+      "publisher": "Rigzone(Bloomberg)",
+      "url": "https://rigzone.com/news/wire/oil_posts_biggest_weekly_drop_since_2022-06-nov-2026-185035-article",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "美 데이터센터 규제 우려에 코스피 6% 급락…외국인 2.8조 순매도 [fn마감시황]",
+      "publisher": "파이낸셜뉴스",
+      "url": "https://www.fnnews.com/news/202611061559461085",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "'코스피 대탈출' 경고음…8조 던진 외국인 심상치 않다",
+      "publisher": "한국경제",
+      "url": "https://www.hankyung.com/article/2026110833407",
+      "date": "2026-11-08"
+    },
+    {
+      "title": "美 '블루웨이브' 증시 급락 여파…환율, 1350원 위로(상보)",
+      "publisher": "아시아경제",
+      "url": "https://www.asiae.co.kr/article/2026110616452118492",
+      "date": "2026-11-06"
+    },
+    {
+      "title": "국고채 금리 일제히 하락…3년물 연 3.613%",
+      "publisher": "연합뉴스(서플)",
+      "url": "https://supple.kr/news/cmw4qhoi6p4udal9p3xbx0yay",
+      "date": "2026-11-06"
+    }
+  ],
+  "indicators": [
+    {
+      "id": "sp500",
+      "label": "S&P 500",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 7376.86
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 7580.07
+      }
+    },
+    {
+      "id": "ust10",
+      "label": "美 10년물",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 4.86
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 4.94
+      }
+    },
+    {
+      "id": "kospi",
+      "label": "KOSPI",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 5059.69
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 5730.74
+      }
+    },
+    {
+      "id": "ktb3",
+      "label": "국고채 3년",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 3.613
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 3.715
+      }
+    },
+    {
+      "id": "usdkrw",
+      "label": "원/달러",
+      "unit": "원",
+      "digits": 1,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 1342
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 1335.3
+      }
+    },
+    {
+      "id": "wti",
+      "label": "WTI",
+      "unit": "$",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-06",
+        "value": 90.83
+      },
+      "weekAgo": {
+        "date": "2026-10-30",
+        "value": 107.56
+      }
+    }
+  ]
+}

@@ -1,8 +1,17 @@
 "use client";
 
+import { useCallback, useMemo, useState } from "react";
+
 import { MarketPanel } from "@/components/MarketPanel";
 import { parseEmphasis } from "@/lib/emphasis";
 import { formatChange, formatDayTick, formatKoreanDate, formatNumber } from "@/lib/format";
+import {
+  defaultSnapshot,
+  formatKstTime,
+  formatSnapshotLabel,
+  snapshotPoint,
+  type MarketSnapshot,
+} from "@/lib/market-shared";
 import { toMs } from "@/lib/series";
 import type { WeeklyState } from "@/lib/useWeeklyBrief";
 import type { WeeklyBrief, WeeklyIndicator } from "@/lib/weekly-types";
@@ -192,18 +201,30 @@ function IndicatorNote({ indicator, asOf }: { indicator: WeeklyIndicator; asOf: 
   );
 }
 
-function Footnotes({ brief }: { brief: WeeklyBrief }) {
+function Footnotes({ brief, baseline }: { brief: WeeklyBrief; baseline: MarketSnapshot | null }) {
   const latest = brief.indicators.map((i) => i.latest.date).sort().at(-1);
+  // /weekly 실행 시점 시세로 채운 지표가 있으면 그중 가장 늦은 시각을 적는다
+  const liveTime = brief.indicators
+    .map((i) => i.latest.time)
+    .filter((time): time is string => Boolean(time))
+    .sort()
+    .at(-1);
 
   return (
     <div className="space-y-2 text-[12px] text-muted">
       {brief.indicators.length ? (
         <p className="flex flex-wrap gap-x-4 gap-y-1">
           <span className="font-semibold text-ink-2">
-            지표 주간 변동{latest ? ` (${formatKoreanDate(latest)} 기준)` : ""}
+            지표 주간 변동{latest ? ` (${formatKoreanDate(latest)} ${liveTime ? `${formatKstTime(liveTime)} 현재` : "기준"})` : ""}
+            {baseline ? <span className="font-normal text-muted"> · {formatSnapshotLabel(baseline.at)} 보고比</span> : null}
           </span>
           {brief.indicators.map((indicator) => (
-            <IndicatorNote key={indicator.id} indicator={indicator} asOf={latest ?? ""} />
+            // 비교점은 화면에서 고른 지난 보고 스냅샷. 그 스냅샷에 없는 계열(옛 파일의 국고채 3년)은 7일 전 관측치 그대로.
+            <IndicatorNote
+              key={indicator.id}
+              indicator={{ ...indicator, weekAgo: snapshotPoint(baseline, indicator.id) ?? indicator.weekAgo }}
+              asOf={latest ?? ""}
+            />
           ))}
         </p>
       ) : null}
@@ -257,9 +278,37 @@ type Props = {
   onRegenerate: () => void;
 };
 
+/** 주소의 ?base=접두사 — 전주比 기준으로 고른 스냅샷. 새로고침·엑셀 링크에도 이어지도록 주소에 둔다. (서버 렌더에서는 null) */
+function readBaseParam(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("base");
+}
+
+function writeBaseParam(prefix: string | null) {
+  const url = new URL(window.location.href);
+  if (prefix) url.searchParams.set("base", prefix);
+  else url.searchParams.delete("base");
+  window.history.replaceState(null, "", url);
+}
+
 export function WeeklyMonitor({ state, onRegenerate }: Props) {
   const { brief } = state;
   const refreshing = state.status === "loading";
+
+  // 전주比 비교 기준 — 보고 요일이 매주 달라서 "7일 전"이 아니라 지난 보고(스냅샷) 시점과 비교한다.
+  // 주소의 ?base= 를 따르고, 없으면 기준일(오늘)보다 앞선 가장 최근 스냅샷.
+  // 서버 렌더 때는 요약문이 아직 없어 이 값에 기대는 표시가 없으므로 첫 렌더에서 주소를 읽어도 hydration 이 어긋나지 않는다.
+  const [basePrefix, setBasePrefix] = useState<string | null>(readBaseParam);
+  const market = brief?.market ?? null;
+  const baseline = useMemo(() => {
+    if (!market) return null;
+    const snapshots = market.snapshots ?? [];
+    return (basePrefix && snapshots.find((s) => s.prefix === basePrefix)) || defaultSnapshot(snapshots, market.asOf);
+  }, [market, basePrefix]);
+  const changeBase = useCallback((prefix: string | null) => {
+    setBasePrefix(prefix);
+    writeBaseParam(prefix);
+  }, []);
 
   return (
     <div className="max-w-[920px] space-y-3">
@@ -269,10 +318,10 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
         <>
           <Meta brief={brief} refreshing={refreshing} onRegenerate={onRegenerate} />
           <BriefBox brief={brief} />
-          <Footnotes brief={brief} />
-          {/* 상자와 같은 너비로 차트 6개와 환율표 — 자료 파일은 /weekly 가 만든다 */}
+          <Footnotes brief={brief} baseline={baseline} />
+          {/* 상자와 같은 너비로 차트 6개와 환율표 — 자료 파일은 /weekly 가 만든다. 오른쪽 빈 칸에 전주比 기준 패널 */}
           <div className="pt-3">
-            <MarketPanel market={brief.market} />
+            <MarketPanel market={brief.market} baseline={baseline} onBaseChange={changeBase} />
           </div>
         </>
       ) : refreshing || state.status === "idle" ? (

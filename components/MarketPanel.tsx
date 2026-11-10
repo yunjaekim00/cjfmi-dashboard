@@ -5,15 +5,20 @@ import {
   FX_SPECS,
   annotationBelow,
   dateFraction,
+  defaultSnapshot,
   formatAxisValue,
+  formatKstTime,
   formatSignedPct,
+  formatSnapshotLabel,
   formatTickDate,
   formatValue,
   formatWeekChange,
   marketWindow,
+  snapshotPoint,
   yScale,
   type ChartSpec,
   type MarketChart,
+  type MarketSnapshot,
   type WeeklyMarket,
 } from "@/lib/market-shared";
 
@@ -45,9 +50,11 @@ type ChartProps = {
   market: WeeklyMarket;
   /** 첫 칸(S&P500)에만 "전주비" 글자와 사건 라벨을 쓴다 — 보고서와 같게 */
   first: boolean;
+  /** 전주比의 비교점 — 고른 지난 보고 스냅샷. 그 계열 값이 없으면 7일 전 관측치(weekAgo)로 */
+  baseline: MarketSnapshot | null;
 };
 
-function MarketChartSvg({ spec, chart, market, first }: ChartProps) {
+function MarketChartSvg({ spec, chart, market, first, baseline }: ChartProps) {
   const { asOf, windowStart, event } = market;
   const { ticks } = marketWindow(asOf);
 
@@ -64,7 +71,8 @@ function MarketChartSvg({ spec, chart, market, first }: ChartProps) {
   const eventX = x(event.date);
 
   // 최근치 표기 — 오른쪽 끝에 맞춰 쓰고, 마지막 30% 구간에서 선이 비운 쪽(위/아래)에 둔다 (보고서의 배치 방식)
-  const { latest, weekAgo } = chart;
+  const { latest } = chart;
+  const weekAgo = snapshotPoint(baseline, spec.id) ?? chart.weekAgo;
   const below = annotationBelow(chart.points, windowStart, asOf, scale.lo, scale.hi);
   const recentYs = chart.points
     .filter((p) => dateFraction(p.date, windowStart, asOf) >= 0.7)
@@ -160,6 +168,8 @@ function FxTable({ market }: { market: WeeklyMarket }) {
     .filter((date): date is string => Boolean(date))
     .sort()
     .at(-1);
+  // 최근치가 실행 시점 시세면 그 시각을, 집계치면 고시 시각(08:30)을 적는다
+  const liveTime = market.liveAt && market.fx.items.some((item) => item.live) ? formatKstTime(market.liveAt) : null;
 
   return (
     <table className="mk-fx">
@@ -181,7 +191,7 @@ function FxTable({ market }: { market: WeeklyMarket }) {
       </thead>
       <tbody>
         <tr>
-          <td>{asOf ? `${formatTickDate(asOf)}일(08:30 기준)` : "최근"}</td>
+          <td>{asOf ? `${formatTickDate(asOf)}일(${liveTime ? `${liveTime} 현재` : "08:30 기준"})` : "최근"}</td>
           {FX_SPECS.map((spec) => {
             const item = items.get(spec.id);
             return <td key={spec.id}>{item?.latest ? formatValue(spec, item.latest.value) : "-"}</td>;
@@ -203,25 +213,86 @@ function FxTable({ market }: { market: WeeklyMarket }) {
   );
 }
 
-function Notes({ market }: { market: WeeklyMarket }) {
+/** 차트 오른쪽 빈 칸의 "전주比 기준" 패널 — 과거 market 파일(보고 시점 스냅샷) 중 하나를 고른다. PC 화면 전용. */
+function BaselinePanel({
+  market,
+  baseline,
+  onBaseChange,
+}: {
+  market: WeeklyMarket;
+  baseline: MarketSnapshot | null;
+  onBaseChange: (prefix: string | null) => void;
+}) {
+  const snapshots = market.snapshots ?? [];
+  if (!snapshots.length) return null;
+  const fallback = defaultSnapshot(snapshots, market.asOf);
+
+  return (
+    <aside className="absolute left-full top-0 ml-5 w-[240px] rounded-lg border border-line bg-card px-3 py-2.5 text-[12px] text-ink-2">
+      <p className="font-semibold text-ink">전주比 기준</p>
+      <p className="mt-0.5 text-muted">지난 보고(/weekly 실행) 시점에 저장된 값과 비교합니다.</p>
+      <select
+        aria-label="전주比 기준 스냅샷"
+        className="mt-2 w-full rounded-md border border-line bg-white px-2 py-1 text-ink"
+        value={baseline?.prefix ?? ""}
+        // 기본값을 고르면 주소에 남기지 않는다 — 다음 보고 때 자동으로 그 전 보고로 넘어가게
+        onChange={(event) => onBaseChange(event.target.value === fallback?.prefix ? null : event.target.value)}
+      >
+        {[...snapshots].reverse().map((snapshot) => (
+          <option key={snapshot.prefix} value={snapshot.prefix}>
+            {formatSnapshotLabel(snapshot.at)}
+            {snapshot.prefix === fallback?.prefix ? " (기본)" : ""}
+          </option>
+        ))}
+      </select>
+      {baseline ? (
+        <p className="mt-2 text-muted">
+          기준 {formatSnapshotLabel(baseline.at)} · {baseline.prefix}
+          <br />
+          현재 {formatTickDate(market.asOf)}일 {market.liveAt ? formatKstTime(market.liveAt) : ""} 시세와 비교
+        </p>
+      ) : null}
+      <p className="mt-2 text-muted">기본값은 오늘보다 앞선 날의 가장 최근 파일. 고른 값은 주소(?base=)에 남고 엑셀에도 적용됩니다.</p>
+    </aside>
+  );
+}
+
+function Notes({ market, baseline }: { market: WeeklyMarket; baseline: MarketSnapshot | null }) {
   const overridden = market.charts
     .filter((chart) => chart.overrideDates.length)
     .map((chart) => {
       const spec = CHART_SPECS.find((s) => s.id === chart.id);
       return `${spec?.title ?? chart.id} ${chart.overrideDates.map(formatTickDate).join("·")}`;
     });
+  const liveTime = market.liveAt ? formatKstTime(market.liveAt) : null;
+  // 시세를 받으려 했는데 못 받아 집계치로 남은 항목
+  const notLive = market.liveAt
+    ? [
+        ...market.charts
+          .filter((chart) => chart.points.length && !chart.live)
+          .map((chart) => CHART_SPECS.find((s) => s.id === chart.id)?.title ?? chart.id),
+        ...market.fx.items
+          .filter((item) => item.latest && !item.live)
+          .map((item) => `환율표 ${FX_SPECS.find((s) => s.id === item.id)?.label ?? item.id}`),
+      ]
+    : [];
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 text-[12px] text-muted">
       <p className="max-w-[640px]">
-        자료: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율). 달러인덱스는 ICE
-        산식으로 ECOS 의 6개 통화 환율에서 계산. 환율표는 한국은행 고시 환율(08:30) 기준이며 위안은 원/달러 ÷
-        원/위안 교차환율.
+        {liveTime
+          ? `최근치는 ${formatTickDate(market.asOf)}일 ${liveTime} KST 시세(CNBC 시세 · 네이버 금융, 5분마다 갱신). `
+          : ""}
+        1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美
+        10년물은 재무부 일별 금리표로 보충. 환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은
+        ICE 산식으로 계산, 위안은 교차환율. WTI 최근치는 선물 근월물이라 현물 이력과 기준이 다르다.
+        {baseline ? ` 전주比는 ${formatSnapshotLabel(baseline.at)} 보고 시점 값 대비.` : " 전주比는 지난주 같은 요일 대비."}
+        {notLive.length ? ` ※ 실시간 시세를 못 받아 집계치 사용: ${notLive.join(", ")}.` : ""}
         {overridden.length ? ` ※ 기사에서 확인한 종가(출처 집계 전): ${overridden.join(", ")}.` : ""}
         {market.file ? ` · data/${market.file}` : ""}
       </p>
       <a
-        href="/api/weekly/xlsx"
+        href={`/api/weekly/xlsx${baseline ? `?base=${encodeURIComponent(baseline.prefix)}` : ""}`}
         download
         className="whitespace-nowrap rounded-md border border-line bg-card px-2.5 py-1 text-ink-2 transition-colors hover:bg-[#e7e7e7]"
       >
@@ -231,7 +302,15 @@ function Notes({ market }: { market: WeeklyMarket }) {
   );
 }
 
-export function MarketPanel({ market }: { market: WeeklyMarket | null | undefined }) {
+export function MarketPanel({
+  market,
+  baseline,
+  onBaseChange,
+}: {
+  market: WeeklyMarket | null | undefined;
+  baseline: MarketSnapshot | null;
+  onBaseChange: (prefix: string | null) => void;
+}) {
   if (!market) {
     return (
       <p className="text-[12px] text-muted">
@@ -243,8 +322,15 @@ export function MarketPanel({ market }: { market: WeeklyMarket | null | undefine
   const charts = new Map(market.charts.map((chart) => [chart.id, chart]));
 
   return (
-    <section className="mk space-y-2">
-      <h3 className="mk-title mk-400">[ 주요국 금융시장 동향 ]</h3>
+    <section className="mk relative space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+        <h3 className="mk-title mk-400">[ 주요국 금융시장 동향 ]</h3>
+        {market.liveAt ? (
+          <span className="text-[12px] text-muted">
+            {formatTickDate(market.asOf)}일 {formatKstTime(market.liveAt)} 현재 시세
+          </span>
+        ) : null}
+      </div>
 
       <div className="overflow-x-auto">
         <div className="mk-grid min-w-[640px]">
@@ -254,7 +340,7 @@ export function MarketPanel({ market }: { market: WeeklyMarket | null | undefine
               <div key={spec.id} className="mk-cell">
                 <div className="mk-bar">{spec.title}</div>
                 {chart && chart.points.length ? (
-                  <MarketChartSvg spec={spec} chart={chart} market={market} first={index === 0} />
+                  <MarketChartSvg spec={spec} chart={chart} market={market} first={index === 0} baseline={baseline} />
                 ) : (
                   <div className="mk-empty">{chart?.error ?? "자료 없음"}</div>
                 )}
@@ -266,7 +352,8 @@ export function MarketPanel({ market }: { market: WeeklyMarket | null | undefine
         <FxTable market={market} />
       </div>
 
-      <Notes market={market} />
+      <Notes market={market} baseline={baseline} />
+      <BaselinePanel market={market} baseline={baseline} onBaseChange={onBaseChange} />
     </section>
   );
 }
