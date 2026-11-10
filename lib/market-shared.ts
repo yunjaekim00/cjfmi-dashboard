@@ -51,12 +51,16 @@ export type MarketFxItem = {
  * 화면의 "전주比 기준" 드롭다운에서 고르면 차트·각주의 변동이 이 값 대비로 계산된다 (보고 요일이 매주 달라서).
  */
 export type MarketSnapshot = {
-  /** 파일명 접두사 "YYMMDD-HHMM" (옛 파일은 "YYMMDD") */
+  /** 보고 시점이면 파일명 접두사 "YYMMDD-HHMM"(옛 파일은 "YYMMDD"), 종가 기준이면 "close:YYYY-MM-DD" */
   prefix: string;
-  /** 값을 받은 시각(ISO) */
+  /** 값을 받은 시각(ISO). 종가 기준은 그날 15:30 KST 로 둔다 */
   at: string;
   /** 계열 id → 값 (차트 6개 · 환율표 계열 · 국고채 3년) */
   values: Record<string, number>;
+  /** report: /weekly 가 파일을 쓸 때의 값 · close: 그날 종가 (없으면 report) */
+  kind?: "report" | "close";
+  /** 종가 기준에서 계열마다 실제로 쓴 종가의 날짜 — 그날 거래가 없으면(휴장·출처 지연) 직전 거래일 */
+  dates?: Record<string, string>;
 };
 
 export type WeeklyMarket = {
@@ -77,8 +81,10 @@ export type WeeklyMarket = {
   snapshot?: { at: string; values: Record<string, number> } | null;
   /** 서버가 붙이는 과거 스냅샷 목록(시각 오름차순) — 화면의 "전주比 기준" 드롭다운 */
   snapshots?: MarketSnapshot[];
+  /** 차트에 없는 계열(국고채 3년)의 최근 일별 종가 — "종가 기준" 비교에 쓴다 (서버가 붙인다) */
+  recentCloses?: Record<string, MarketPoint[]>;
   /** 적용한 비교 기준(엑셀). 화면은 브라우저에서 같은 계산을 한다 */
-  compareBase?: { prefix: string; at: string } | null;
+  compareBase?: { prefix: string; at: string; label: string } | null;
 };
 
 // ───────────────────────── 정의 ─────────────────────────
@@ -230,10 +236,50 @@ export function defaultSnapshot(snapshots: MarketSnapshot[], asOf: string): Mark
   return found;
 }
 
-/** 스냅샷을 비교점(weekAgo 자리)으로 — 그 계열 값이 없으면 null */
+/** 스냅샷을 비교점(weekAgo 자리)으로 — 그 계열 값이 없으면 null. 종가 기준이면 실제로 쓴 종가의 날짜. */
 export function snapshotPoint(snapshot: MarketSnapshot | null | undefined, id: string): MarketPoint | null {
   const value = snapshot?.values[id];
-  return snapshot && value !== undefined ? { date: kstDateOf(snapshot.at), value } : null;
+  return snapshot && value !== undefined ? { date: snapshot.dates?.[id] ?? kstDateOf(snapshot.at), value } : null;
+}
+
+function weekdayKo(date: string): string {
+  return WEEKDAY_KO[new Date(`${date}T00:00:00Z`).getUTCDay()];
+}
+
+/** 드롭다운·각주 표기 — 보고 시점은 "11/3(화) 16:50 보고", 종가 기준은 "11/7(금) 종가" */
+export function snapshotLabel(snapshot: MarketSnapshot): string {
+  if (snapshot.kind === "close") {
+    const date = kstDateOf(snapshot.at);
+    return `${formatTickDate(date)}(${weekdayKo(date)}) 종가`;
+  }
+  return `${formatSnapshotLabel(snapshot.at)} 보고`;
+}
+
+/**
+ * 최근 N일의 "종가 기준" 비교점 — 저장 파일이 없는 날짜와도 비교할 수 있게. 기준일(오늘)은 뺀다.
+ * 차트 점(1년 일별 종가)과 recentCloses(차트에 없는 계열)에서 그날 종가를 쓰고, 없으면 직전 거래일 종가를 쓰되
+ * 그 날짜를 dates 에 남긴다(화면이 밝힌다). 어느 계열도 거래가 없는 날(주말)은 뺀다. 날짜 오름차순.
+ */
+export function buildCloseSnapshots(market: WeeklyMarket, days = 14): MarketSnapshot[] {
+  const series: Array<[string, MarketPoint[]]> = [
+    ...market.charts.map((chart): [string, MarketPoint[]] => [chart.id, chart.points.filter((p) => p.date < market.asOf)]),
+    ...Object.entries(market.recentCloses ?? {}),
+  ];
+  const out: MarketSnapshot[] = [];
+  for (let back = days; back >= 1; back -= 1) {
+    const date = shiftDays(market.asOf, -back);
+    if (!series.some(([, points]) => points.some((p) => p.date === date))) continue;
+    const values: Record<string, number> = {};
+    const dates: Record<string, string> = {};
+    for (const [id, points] of series) {
+      const point = latestOnOrBefore(points, date);
+      if (!point) continue;
+      values[id] = point.value;
+      dates[id] = point.date;
+    }
+    out.push({ prefix: `close:${date}`, at: `${date}T15:30:00+09:00`, values, dates, kind: "close" });
+  }
+  return out;
 }
 
 /** ISO 시각 → "12:21" (KST). 실행 시점 시세의 시각 표기. */

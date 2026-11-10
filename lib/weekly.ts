@@ -662,9 +662,16 @@ export async function getWeeklyBrief(options: Options = {}): Promise<WeeklyBrief
   const brief = await resolveBrief(options);
   // 차트·환율표 자료는 본문과 별도 파일이다 — 접두사가 가장 늦은 파일을 붙이고, 둘 다 지금 시세로 덧씌운다.
   // 과거 파일들의 스냅샷 목록은 화면의 "전주比 기준" 드롭다운이 된다.
-  const [market, snapshots] = await Promise.all([readMarketFile(), listMarketSnapshots()]);
+  const today = todayKst();
+  const [market, snapshots, extra] = await Promise.all([
+    readMarketFile(),
+    listMarketSnapshots(),
+    Promise.all(EXTRA_CLOSE_IDS.map(async (id) => [id, await recentSeries(id, today)] as const)),
+  ]);
   const result = await attachLive(brief, market);
-  return result.market ? { ...result, market: { ...result.market, snapshots } } : result;
+  return result.market
+    ? { ...result, market: { ...result.market, snapshots, recentCloses: Object.fromEntries(extra) } }
+    : result;
 }
 
 /**
@@ -691,24 +698,31 @@ async function attachLive(brief: WeeklyBrief, market: WeeklyMarket | null): Prom
   return { ...brief, indicators, market: liveMarket };
 }
 
-/** 차트 자료에 없는 계열의 "한 주 전" — 출처에서 최근 3주를 받아 오늘 − 7일 이전 마지막 관측치. 30분 캐시. */
-const weekAgoMemo: Map<string, { point: Point | null; expiresAt: number }> = ((globalThis as Record<string, unknown>)
-  .__weeklyWeekAgo ??= new Map()) as Map<string, { point: Point | null; expiresAt: number }>;
+/** 차트에는 없지만 각주에 있는 계열 — 최근 일별 관측치를 따로 받아 "한 주 전"과 "종가 기준" 비교에 쓴다 */
+const EXTRA_CLOSE_IDS = ["ktb3"] as const;
 
-async function weekAgoFromSource(id: string, today: string): Promise<Point | null> {
-  if (!(id in SERIES)) return null;
+/** 계열의 최근 3주 일별 관측치. 30분 캐시. 실패하면 빈 배열. */
+const recentMemo: Map<string, { points: Point[]; expiresAt: number }> = ((globalThis as Record<string, unknown>)
+  .__weeklyRecent ??= new Map()) as Map<string, { points: Point[]; expiresAt: number }>;
+
+async function recentSeries(id: string, today: string): Promise<Point[]> {
+  if (!(id in SERIES)) return [];
   const key = `${id}:${today}`;
-  const cached = weekAgoMemo.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.point;
+  const cached = recentMemo.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.points;
   try {
     const points = await fetchRecent(SERIES[id as SeriesId], shiftDate(today, -21), today);
-    const point = latestOnOrBefore(points, shiftDate(today, -7));
-    weekAgoMemo.set(key, { point, expiresAt: Date.now() + 30 * 60 * 1000 });
-    return point;
+    recentMemo.set(key, { points, expiresAt: Date.now() + 30 * 60 * 1000 });
+    return points;
   } catch (error) {
-    console.warn(`[weekly] ${id} 한 주 전 값 조회 실패:`, error instanceof Error ? error.message : error);
-    return null;
+    console.warn(`[weekly] ${id} 최근 관측치 조회 실패:`, error instanceof Error ? error.message : error);
+    return [];
   }
+}
+
+/** 차트 자료에 없는 계열의 "한 주 전" — 오늘 − 7일 이전 마지막 관측치 */
+async function weekAgoFromSource(id: string, today: string): Promise<Point | null> {
+  return latestOnOrBefore(await recentSeries(id, today), shiftDate(today, -7));
 }
 
 async function resolveBrief({ force = false }: Options): Promise<WeeklyBrief> {

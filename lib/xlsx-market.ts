@@ -7,7 +7,6 @@ import {
   dateFraction,
   formatKstTime,
   formatSignedPct,
-  formatSnapshotLabel,
   formatTickDate,
   formatValue,
   formatWeekChange,
@@ -521,9 +520,9 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
     }`,
     "1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美 10년물은 재무부 일별 금리표로 보충. WTI 최근치는 선물 근월물.",
     `환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은 ICE 산식으로 계산, 위안은 원/달러 ÷ 원/위안 교차환율. 전주比는 ${
-      market.compareBase ? `${formatSnapshotLabel(market.compareBase.at)} 보고 시점 값 대비` : "지난주 같은 요일 대비"
+      market.compareBase ? `${market.compareBase.label} 대비` : "지난주 같은 요일 대비"
     }(금리는 %p).`,
-    ...(overridden.length ? [`기사에서 확인한 종가(출처 집계 전): ${overridden.join(", ")}`] : []),
+    ...(overridden.length ? [`출처 집계 전 종가(CNBC 마감 시세·기사): ${overridden.join(", ")}`] : []),
     `세로 연파랑 띠: ${market.event.label} ${market.event.note}. 1년치 원자료는 "${DATA_SHEET}" 시트.`,
   ];
   notes.forEach((note, i) => put(ROW_NOTE + i, cellText(`A${ROW_NOTE + i}`, note, STYLE.note)));

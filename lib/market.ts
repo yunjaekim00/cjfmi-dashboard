@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
-import { fetchLiveQuotes, type LiveQuotesResult } from "@/lib/market-live";
+import { fetchLiveQuotes, usCloseDate, type LiveQuotesResult } from "@/lib/market-live";
 import {
   FX_SERIES,
   FX_SPECS,
@@ -12,6 +12,7 @@ import {
   appreciationPct,
   marketWindow,
   pickWeekAgo,
+  snapshotLabel,
   snapshotPoint,
   stampKey,
   type MarketSnapshot,
@@ -154,6 +155,7 @@ export async function listMarketSnapshots(): Promise<MarketSnapshot[]> {
       prefix: name.replace(/-weekly-market\.json$/, ""),
       at: file.snapshot?.at ?? file.liveAt ?? file.generatedAt,
       values,
+      kind: "report",
     });
   }
   return out.sort((a, b) => a.at.localeCompare(b.at));
@@ -164,7 +166,7 @@ export function applyCompareBase(market: WeeklyMarket, snapshot: MarketSnapshot 
   if (!snapshot) return market;
   return {
     ...market,
-    compareBase: { prefix: snapshot.prefix, at: snapshot.at },
+    compareBase: { prefix: snapshot.prefix, at: snapshot.at, label: snapshotLabel(snapshot) },
     charts: market.charts.map((chart) => ({ ...chart, weekAgo: snapshotPoint(snapshot, chart.id) ?? chart.weekAgo })),
   };
 }
@@ -225,7 +227,12 @@ export function overlayLiveMarket(market: WeeklyMarket, live: LiveQuotesResult |
 
   const charts = market.charts.map((chart) => {
     const quote = live.quotes[chart.id];
-    const kept = chart.points.filter((p) => p.date >= windowStart && (!quote || p.date !== today));
+    let kept = chart.points.filter((p) => p.date >= windowStart && (!quote || p.date !== today));
+    // S&P500 은 뉴욕 마감 뒤 시세가 그날 종가 — FRED 가 아직 없는 날이면 이력에 끼워 "종가 기준" 비교가 맞게 한다
+    const closeDate = quote && chart.id === "sp500" ? usCloseDate(quote.time) : null;
+    if (quote && closeDate && closeDate < today && !kept.some((p) => p.date === closeDate)) {
+      kept = [...kept, { date: closeDate, value: quote.value }].sort((a, b) => a.date.localeCompare(b.date));
+    }
     const points = quote ? [...kept, { date: today, value: quote.value }] : kept;
     const latest = points.at(-1) ?? null;
     return {

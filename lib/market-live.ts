@@ -171,9 +171,13 @@ export async function fetchCnbcQuotes(symbols: string[]): Promise<Map<string, Ra
     if (!quote?.symbol || String(quote.code ?? "0") !== "0") continue;
     const value = parseNumber(quote.last);
     if (value === null) continue;
+    // 마감 뒤에는 last_time 이 날짜만 온다("2026-11-09"). 그대로 파싱하면 00:00Z(전날 저녁 ET)가 되어 날짜가 하루 밀리므로
+    // 그날 뉴욕 마감(16:00 EST = 21:00Z, 서머타임이면 17:00 EDT)으로 둔다 — usCloseDate 가 그날 종가로 본다.
+    const rawTime = String(quote.last_time ?? "");
+    const time = /^\d{4}-\d{2}-\d{2}$/.test(rawTime) ? `${rawTime}T21:00:00.000Z` : isoTime(rawTime);
     out.set(quote.symbol, {
       value,
-      time: isoTime(quote.last_time),
+      time,
       status: quote.curmktstatus ?? null,
       delayed: String(quote.realTime) !== "true",
     });
@@ -256,6 +260,32 @@ export async function fetchTreasury10y(from: string, to: string): Promise<DatedV
   return points
     .filter((p) => p.date >= from && p.date <= to && Number.isFinite(p.value))
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ───────────────────────── 종가 판정 ─────────────────────────
+
+const ET_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+});
+
+/**
+ * 美 증시 마감(16:00 ET) 뒤에 받은 지수 시세는 그날 종가다 — 그 뉴욕 날짜("YYYY-MM-DD")를 돌려준다. 장중이면 null.
+ * FRED SP500 이 이틀 늦으므로, 이 값으로 이력의 빈 날을 채운다 (출처가 올라오면 출처가 이긴다).
+ */
+export function usCloseDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const parts = ET_PARTS.formatToParts(new Date(ms));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const hour = Number(get("hour"));
+  if (!Number.isFinite(hour) || hour < 16) return null;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 // ───────────────────────── 묶음 조회 ─────────────────────────

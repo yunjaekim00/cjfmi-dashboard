@@ -6,9 +6,10 @@ import { MarketPanel } from "@/components/MarketPanel";
 import { parseEmphasis } from "@/lib/emphasis";
 import { formatChange, formatDayTick, formatKoreanDate, formatNumber } from "@/lib/format";
 import {
+  buildCloseSnapshots,
   defaultSnapshot,
   formatKstTime,
-  formatSnapshotLabel,
+  snapshotLabel,
   snapshotPoint,
   type MarketSnapshot,
 } from "@/lib/market-shared";
@@ -216,7 +217,7 @@ function Footnotes({ brief, baseline }: { brief: WeeklyBrief; baseline: MarketSn
         <p className="flex flex-wrap gap-x-4 gap-y-1">
           <span className="font-semibold text-ink-2">
             지표 주간 변동{latest ? ` (${formatKoreanDate(latest)} ${liveTime ? `${formatKstTime(liveTime)} 현재` : "기준"})` : ""}
-            {baseline ? <span className="font-normal text-muted"> · {formatSnapshotLabel(baseline.at)} 보고比</span> : null}
+            {baseline ? <span className="font-normal text-muted"> · {snapshotLabel(baseline)}比</span> : null}
           </span>
           {brief.indicators.map((indicator) => (
             // 비교점은 화면에서 고른 지난 보고 스냅샷. 그 스냅샷에 없는 계열(옛 파일의 국고채 3년)은 7일 전 관측치 그대로.
@@ -300,11 +301,19 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
   // 서버 렌더 때는 요약문이 아직 없어 이 값에 기대는 표시가 없으므로 첫 렌더에서 주소를 읽어도 hydration 이 어긋나지 않는다.
   const [basePrefix, setBasePrefix] = useState<string | null>(readBaseParam);
   const market = brief?.market ?? null;
-  const baseline = useMemo(() => {
-    if (!market) return null;
-    const snapshots = market.snapshots ?? [];
-    return (basePrefix && snapshots.find((s) => s.prefix === basePrefix)) || defaultSnapshot(snapshots, market.asOf);
-  }, [market, basePrefix]);
+  // 목록 = 보고 시점 스냅샷(저장 파일) + 최근 14일 종가 기준. 기본은 보고 시점 중 오늘보다 앞선 가장 최근 것.
+  const snapshots = useMemo(
+    () => (market ? [...(market.snapshots ?? []), ...buildCloseSnapshots(market)] : []),
+    [market]
+  );
+  const defaultBase = useMemo(
+    () => (market ? defaultSnapshot(snapshots.filter((s) => s.kind !== "close"), market.asOf) : null),
+    [market, snapshots]
+  );
+  const baseline = useMemo(
+    () => (basePrefix && snapshots.find((s) => s.prefix === basePrefix)) || defaultBase,
+    [snapshots, basePrefix, defaultBase]
+  );
   const changeBase = useCallback((prefix: string | null) => {
     setBasePrefix(prefix);
     writeBaseParam(prefix);
@@ -321,7 +330,13 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
           <Footnotes brief={brief} baseline={baseline} />
           {/* 상자와 같은 너비로 차트 6개와 환율표 — 자료 파일은 /weekly 가 만든다. 오른쪽 빈 칸에 전주比 기준 패널 */}
           <div className="pt-3">
-            <MarketPanel market={brief.market} baseline={baseline} onBaseChange={changeBase} />
+            <MarketPanel
+              market={brief.market}
+              baseline={baseline}
+              snapshots={snapshots}
+              defaultPrefix={defaultBase?.prefix ?? null}
+              onBaseChange={changeBase}
+            />
           </div>
         </>
       ) : refreshing || state.status === "idle" ? (

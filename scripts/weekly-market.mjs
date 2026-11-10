@@ -46,7 +46,7 @@ import {
   pickWeekAgo,
   shiftDays,
 } from "../lib/market-shared.ts";
-import { fetchLiveQuotes, fetchNaverIndexHistory, fetchTreasury10y } from "./lib/live-quotes.mjs";
+import { fetchLiveQuotes, fetchNaverIndexHistory, fetchTreasury10y, usCloseDate } from "./lib/live-quotes.mjs";
 
 // ── .env.local (있으면) ──
 try {
@@ -398,6 +398,18 @@ async function main() {
     // 국고채 3년은 차트에 없지만 각주 기준(스냅샷)에 들어간다
     const ids = [...new Set([...CHART_SPECS.map((spec) => spec.id), ...Object.values(FX_SERIES), "ktb3"])];
     live = await fetchLiveQuotes(ids);
+
+    // 뉴욕 마감(16:00 ET) 뒤의 S&P500 시세는 그날 종가 — FRED 가 이틀 늦으므로 덮어쓰기(출처가 올라오면 출처가 이긴다)로
+    // 넣어 이력의 빈 날과 "종가 기준" 비교를 메운다. WTI 선물은 정산가가 따로라 넣지 않는다.
+    const spQuote = live.quotes.sp500;
+    const spDate = spQuote ? usCloseDate(spQuote.time) : null;
+    if (spQuote && spDate && spDate < asOf) {
+      const entry = entryFor(cache, "sp500");
+      if (!entry.points.some((p) => p.date === spDate) && entry.overrides[spDate] === undefined) {
+        entry.overrides[spDate] = spQuote.value;
+        console.error(`S&P500 ${spDate} 종가 ${spQuote.value} 를 CNBC 마감 시세로 채웠습니다 (FRED 집계 전).`);
+      }
+    }
   } else if (!offline && !noLive) {
     console.error(`기준일 ${asOf} 이 오늘(${today})이 아니라 실시간 시세는 붙이지 않습니다.`);
   }

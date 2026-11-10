@@ -5,15 +5,15 @@ import {
   FX_SPECS,
   annotationBelow,
   dateFraction,
-  defaultSnapshot,
   formatAxisValue,
   formatKstTime,
   formatSignedPct,
-  formatSnapshotLabel,
   formatTickDate,
   formatValue,
   formatWeekChange,
+  kstDateOf,
   marketWindow,
+  snapshotLabel,
   snapshotPoint,
   yScale,
   type ChartSpec,
@@ -88,6 +88,10 @@ function MarketChartSvg({ spec, chart, market, first, baseline }: ChartProps) {
   let changeText = latest && weekAgo ? formatWeekChange(spec, latest, weekAgo) : "";
   if (latest && daysBetween(latest.date, asOf) > STALE_DAYS) {
     changeText = `${changeText ? `${changeText}, ` : ""}${formatTickDate(latest.date)}`;
+  }
+  // 종가 기준인데 그날 거래가 없어(휴장·출처 지연) 직전 거래일 종가를 썼으면 그 날짜를 밝힌다
+  if (baseline?.kind === "close" && weekAgo && weekAgo.date !== kstDateOf(baseline.at)) {
+    changeText = `${changeText ? `${changeText}, ` : ""}${formatTickDate(weekAgo.date)} 종가比`;
   }
 
   return (
@@ -213,46 +217,85 @@ function FxTable({ market }: { market: WeeklyMarket }) {
   );
 }
 
-/** 차트 오른쪽 빈 칸의 "전주比 기준" 패널 — 과거 market 파일(보고 시점 스냅샷) 중 하나를 고른다. PC 화면 전용. */
+/** 종가 기준에서 계열 이름 — 차트 제목, 차트에 없는 계열은 따로 */
+const SERIES_NAMES: Record<string, string> = Object.fromEntries([
+  ...CHART_SPECS.map((spec) => [spec.id, spec.title]),
+  ["ktb3", "국고채 3년"],
+]);
+
+/**
+ * 차트 오른쪽 빈 칸의 "전주比 기준" 패널 — 보고 시점 스냅샷(저장 파일) 또는 최근 14일의 종가 기준 중 하나를 고른다.
+ * PC 화면 전용.
+ */
 function BaselinePanel({
   market,
   baseline,
+  snapshots,
+  defaultPrefix,
   onBaseChange,
 }: {
   market: WeeklyMarket;
   baseline: MarketSnapshot | null;
+  snapshots: MarketSnapshot[];
+  defaultPrefix: string | null;
   onBaseChange: (prefix: string | null) => void;
 }) {
-  const snapshots = market.snapshots ?? [];
-  if (!snapshots.length) return null;
-  const fallback = defaultSnapshot(snapshots, market.asOf);
+  const reports = snapshots.filter((s) => s.kind !== "close").reverse();
+  const closes = snapshots.filter((s) => s.kind === "close").reverse();
+  if (!reports.length && !closes.length) return null;
+  // 종가 기준인데 그날 거래가 없어 직전 거래일 종가를 쓴 계열
+  const substituted =
+    baseline?.kind === "close"
+      ? Object.entries(baseline.dates ?? {})
+          .filter(([, date]) => date !== kstDateOf(baseline.at))
+          .map(([id, date]) => `${SERIES_NAMES[id] ?? id} ${formatTickDate(date)}`)
+      : [];
 
   return (
     <aside className="absolute left-full top-0 ml-5 w-[240px] rounded-lg border border-line bg-card px-3 py-2.5 text-[12px] text-ink-2">
       <p className="font-semibold text-ink">전주比 기준</p>
-      <p className="mt-0.5 text-muted">지난 보고(/weekly 실행) 시점에 저장된 값과 비교합니다.</p>
+      <p className="mt-0.5 text-muted">지난 보고 때 저장된 값, 또는 그날 종가와 비교합니다.</p>
       <select
-        aria-label="전주比 기준 스냅샷"
+        aria-label="전주比 기준"
         className="mt-2 w-full rounded-md border border-line bg-white px-2 py-1 text-ink"
         value={baseline?.prefix ?? ""}
         // 기본값을 고르면 주소에 남기지 않는다 — 다음 보고 때 자동으로 그 전 보고로 넘어가게
-        onChange={(event) => onBaseChange(event.target.value === fallback?.prefix ? null : event.target.value)}
+        onChange={(event) => onBaseChange(event.target.value === defaultPrefix ? null : event.target.value)}
       >
-        {[...snapshots].reverse().map((snapshot) => (
-          <option key={snapshot.prefix} value={snapshot.prefix}>
-            {formatSnapshotLabel(snapshot.at)}
-            {snapshot.prefix === fallback?.prefix ? " (기본)" : ""}
-          </option>
-        ))}
+        <optgroup label="보고 시점 (저장 파일)">
+          {reports.map((snapshot) => (
+            <option key={snapshot.prefix} value={snapshot.prefix}>
+              {snapshotLabel(snapshot)}
+              {snapshot.prefix === defaultPrefix ? " (기본)" : ""}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="종가 기준 (최근 14일)">
+          {closes.map((snapshot) => (
+            <option key={snapshot.prefix} value={snapshot.prefix}>
+              {snapshotLabel(snapshot)}
+            </option>
+          ))}
+        </optgroup>
       </select>
       {baseline ? (
         <p className="mt-2 text-muted">
-          기준 {formatSnapshotLabel(baseline.at)} · {baseline.prefix}
+          기준 {snapshotLabel(baseline)}
+          {baseline.kind === "close" ? "" : ` · ${baseline.prefix}`}
           <br />
           현재 {formatTickDate(market.asOf)}일 {market.liveAt ? formatKstTime(market.liveAt) : ""} 시세와 비교
+          {substituted.length ? (
+            <>
+              <br />
+              그날 종가가 없어 직전 거래일 사용: {substituted.join(" · ")}
+            </>
+          ) : null}
         </p>
       ) : null}
-      <p className="mt-2 text-muted">기본값은 오늘보다 앞선 날의 가장 최근 파일. 고른 값은 주소(?base=)에 남고 엑셀에도 적용됩니다.</p>
+      <p className="mt-2 text-muted">
+        기본값은 오늘보다 앞선 날의 가장 최근 보고. 종가 기준은 출처 집계가 늦은 날이면 직전 거래일 종가를 씁니다. 고른 값은
+        주소(?base=)에 남고 엑셀에도 적용됩니다.
+      </p>
     </aside>
   );
 }
@@ -286,9 +329,9 @@ function Notes({ market, baseline }: { market: WeeklyMarket; baseline: MarketSna
         1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美
         10년물은 재무부 일별 금리표로 보충. 환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은
         ICE 산식으로 계산, 위안은 교차환율. WTI 최근치는 선물 근월물이라 현물 이력과 기준이 다르다.
-        {baseline ? ` 전주比는 ${formatSnapshotLabel(baseline.at)} 보고 시점 값 대비.` : " 전주比는 지난주 같은 요일 대비."}
+        {baseline ? ` 전주比는 ${snapshotLabel(baseline)} 대비.` : " 전주比는 지난주 같은 요일 대비."}
         {notLive.length ? ` ※ 실시간 시세를 못 받아 집계치 사용: ${notLive.join(", ")}.` : ""}
-        {overridden.length ? ` ※ 기사에서 확인한 종가(출처 집계 전): ${overridden.join(", ")}.` : ""}
+        {overridden.length ? ` ※ 출처 집계 전 종가(CNBC 마감 시세·기사): ${overridden.join(", ")}.` : ""}
         {market.file ? ` · data/${market.file}` : ""}
       </p>
       <a
@@ -305,10 +348,14 @@ function Notes({ market, baseline }: { market: WeeklyMarket; baseline: MarketSna
 export function MarketPanel({
   market,
   baseline,
+  snapshots,
+  defaultPrefix,
   onBaseChange,
 }: {
   market: WeeklyMarket | null | undefined;
   baseline: MarketSnapshot | null;
+  snapshots: MarketSnapshot[];
+  defaultPrefix: string | null;
   onBaseChange: (prefix: string | null) => void;
 }) {
   if (!market) {
@@ -353,7 +400,13 @@ export function MarketPanel({
       </div>
 
       <Notes market={market} baseline={baseline} />
-      <BaselinePanel market={market} baseline={baseline} onBaseChange={onBaseChange} />
+      <BaselinePanel
+        market={market}
+        baseline={baseline}
+        snapshots={snapshots}
+        defaultPrefix={defaultPrefix}
+        onBaseChange={onBaseChange}
+      />
     </section>
   );
 }
