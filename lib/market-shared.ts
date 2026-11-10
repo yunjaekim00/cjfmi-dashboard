@@ -44,7 +44,12 @@ export type MarketFxItem = {
   changePct: number | null;
   /** latest 가 실행 시점 시세이면 그 시각·출처 */
   live?: LiveQuote | null;
+  /** "직전보고일比" — 고른 비교 기준 대비. 엑셀용으로 applyCompareBase 가 채우고, 화면은 브라우저에서 fxCompare 로 계산한다 */
+  compare?: FxCompare | null;
 };
+
+/** 환율표 "직전보고일比" 한 칸 — 기준 시점의 값(실제로 쓴 날짜 포함)과 그 대비 절상(+)·절하(−) 율(%) */
+export type FxCompare = { date: string; value: number; changePct: number };
 
 /**
  * 보고 시점 스냅샷 — /weekly(스크립트)가 market 파일을 쓸 때의 계열별 값.
@@ -81,7 +86,7 @@ export type WeeklyMarket = {
   snapshot?: { at: string; values: Record<string, number> } | null;
   /** 서버가 붙이는 과거 스냅샷 목록(시각 오름차순) — 화면의 "전주比 기준" 드롭다운 */
   snapshots?: MarketSnapshot[];
-  /** 차트에 없는 계열(국고채 3년)의 최근 일별 종가 — "종가 기준" 비교에 쓴다 (서버가 붙인다) */
+  /** 차트에 없는 계열(국고채 3년 · 환율표의 달러인덱스·유로·엔·위안·동)의 최근 일별 값 — "종가 기준" 비교에 쓴다 (서버가 붙인다) */
   recentCloses?: Record<string, MarketPoint[]>;
   /** 적용한 비교 기준(엑셀). 화면은 브라우저에서 같은 계산을 한다 */
   compareBase?: { prefix: string; at: string; label: string } | null;
@@ -144,6 +149,9 @@ export const FX_SERIES: Record<MarketFxId, string> = {
   cny: "usdcny",
   vnd: "usdvnd",
 };
+
+/** 차트에는 없는 환율표 계열(달러인덱스·유로·엔·위안·동) — "종가 기준" 비교용 최근 일별 값을 서버가 따로 붙인다. 원/달러는 차트 점을 쓴다. */
+export const FX_CLOSE_IDS: string[] = Object.values(FX_SERIES).filter((id) => !(MARKET_CHART_IDS as readonly string[]).includes(id));
 
 /** 차트마다 연한 파란 세로 띠로 표시하는 사건. 바꾸면 다음 /weekly 부터 반영된다. */
 export const MARKET_EVENT = { date: "2026-02-28", label: "이스라엘 이란 공습", note: "(26/2/28)" };
@@ -318,6 +326,16 @@ export function pickWeekAgo(points: MarketPoint[], latest: MarketPoint | null): 
 export function appreciationPct(spec: FxSpec, latest: number, baseline: number): number {
   if (!latest || !baseline) return 0;
   return spec.quote === "perUsd" ? (baseline / latest - 1) * 100 : (latest / baseline - 1) * 100;
+}
+
+/**
+ * 환율표 맨 아래 "직전보고일(M/D일)比" 한 칸 — 최근치(지금 시세)를 고른 기준 시점(지난 보고 스냅샷·그날 종가)의 값과 비교한
+ * 그 통화의 절상(+)·절하(−) 율. 기준에 그 계열 값이 없으면 null ("-").
+ */
+export function fxCompare(spec: FxSpec, item: MarketFxItem, snapshot: MarketSnapshot | null | undefined): FxCompare | null {
+  const base = snapshotPoint(snapshot, FX_SERIES[spec.id]);
+  if (!base || !item.latest) return null;
+  return { date: base.date, value: base.value, changePct: Number(appreciationPct(spec, item.latest.value, base.value).toFixed(2)) };
 }
 
 /**

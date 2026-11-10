@@ -471,17 +471,20 @@ async function main() {
   });
 
   // ── 환율표 ──
-  const fxRows = ["| 통화 | 최근 | 비교 시점 | 절상(+)/절하(−) |", "|---|---|---|---|"];
+  const fxRows = ["| 통화 | 최근 | 비교 시점 | 절상(+)/절하(−) | 지난 보고比 |", "|---|---|---|---|---|"];
   const items = FX_SPECS.map((spec) => {
     const entry = entryFor(cache, FX_SERIES[spec.id]);
     const { points: all, live: liveInfo } = withLive(effectivePoints(entry).filter((p) => p.date <= asOf), FX_SERIES[spec.id]);
     const latest = all.at(-1) ?? null;
     const base = latestOnOrBefore(all, baseline);
     const changePct = latest && base ? round(appreciationPct(spec, latest.value, base.value), 2) : null;
+    // 화면 환율표 맨 아래 "직전보고일比" — 지난 보고 스냅샷의 그 통화 값 대비
+    const previousValue = previous?.values[FX_SERIES[spec.id]];
+    const previousPct = latest && previousValue ? round(appreciationPct(spec, latest.value, previousValue), 2) : null;
     fxRows.push(
       `| ${spec.label} | ${latest ? `${formatValue(spec, latest.value)} (${fmtDate(latest.date)}${latest.live ? `, ${fmtLive(liveInfo)}` : ""})` : "-"} | ${
         base ? `${formatValue(spec, base.value)} (${fmtDate(base.date)})` : "-"
-      } | ${changePct === null ? "-" : formatSignedPct(changePct, 1, "%")} |`
+      } | ${changePct === null ? "-" : formatSignedPct(changePct, 1, "%")} | ${previousPct === null ? "-" : formatSignedPct(previousPct, 1, "%")} |`
     );
     if (!latest) warnings.push(`환율표 ${spec.label}: 자료 없음 (${entry.error ?? "계산 불가"})`);
     else if (liveWanted && !liveInfo) {

@@ -10,6 +10,7 @@ import {
   formatTickDate,
   formatValue,
   formatWeekChange,
+  kstDateOf,
   marketWindow,
   yScale,
   type ChartSpec,
@@ -62,7 +63,7 @@ const ROW_TITLE = 1;
 const ROW_CHART_1 = 2;
 const ROW_CHART_2 = ROW_CHART_1 + CHART_ROWS + 1; // 14
 const ROW_FX = ROW_CHART_2 + CHART_ROWS + 1; // 26
-const ROW_NOTE = ROW_FX + 4; // 30
+const ROW_NOTE = ROW_FX + 5; // 31 — 환율표 4행(머리·최근·전쟁직전比·직전보고일比) 다음 한 줄 띄고
 
 const DATA_SHEET = "데이터";
 
@@ -496,6 +497,9 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
   const fxLiveTime = market.liveAt && market.fx.items.some((item) => item.live) ? formatKstTime(market.liveAt) : null;
   putMerged(ROW_FX + 1, 0, 2, fxAsOf ? `${formatTickDate(fxAsOf)}일(${fxLiveTime ? `${fxLiveTime} 현재` : "08:30 기준"})` : "최근", STYLE.fxLabel);
   putMerged(ROW_FX + 2, 0, 2, `${market.fx.baselineLabel}(${formatTickDate(market.fx.baselineDate)}일)比`, STYLE.fxLabel);
+  // 직전보고일比 — 괄호 날짜는 적용한 비교 기준(?base=, 없으면 기준일보다 앞선 가장 최근 보고)
+  const compareDate = market.compareBase ? formatTickDate(kstDateOf(market.compareBase.at)) : null;
+  putMerged(ROW_FX + 3, 0, 2, `직전보고일${compareDate ? `(${compareDate}일)` : ""}比`, STYLE.fxLabel);
   FX_SPECS.forEach((spec, i) => {
     const from = 3 + i * 3;
     const item = items.get(spec.id);
@@ -508,6 +512,7 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
       item && item.changePct !== null ? formatSignedPct(item.changePct, 1, "%") : "-",
       STYLE.fxValue
     );
+    putMerged(ROW_FX + 3, from, from + 2, item?.compare ? formatSignedPct(item.compare.changePct, 1, "%") : "-", STYLE.fxValue);
   });
 
   // 각주
@@ -519,8 +524,8 @@ function reportSheetXml(market: WeeklyMarket, placed: Placed[]): string {
       market.liveAt ? ` · 최근치는 ${formatKstTime(market.liveAt)} KST 시세(CNBC 시세 · 네이버 금융)` : ""
     }`,
     "1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美 10년물은 재무부 일별 금리표로 보충. WTI 최근치는 선물 근월물.",
-    `환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은 ICE 산식으로 계산, 위안은 원/달러 ÷ 원/위안 교차환율. 전주比는 ${
-      market.compareBase ? `${market.compareBase.label} 대비` : "지난주 같은 요일 대비"
+    `환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은 ICE 산식으로 계산, 위안은 원/달러 ÷ 원/위안 교차환율. 전주比와 환율표 직전보고일比는 ${
+      market.compareBase ? `${market.compareBase.label} 대비` : "각각 지난주 같은 요일 대비 · 기준 없음"
     }(금리는 %p).`,
     ...(overridden.length ? [`출처 집계 전 종가(CNBC 마감 시세·기사): ${overridden.join(", ")}`] : []),
     `세로 연파랑 띠: ${market.event.label} ${market.event.note}. 1년치 원자료는 "${DATA_SHEET}" 시트.`,

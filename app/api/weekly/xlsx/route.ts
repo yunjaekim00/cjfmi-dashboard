@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
-import { applyCompareBase, getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
-import { buildCloseSnapshots } from "@/lib/market-shared";
+import { applyCompareBase, fxRecentCloses, getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
+import { buildCloseSnapshots, defaultSnapshot } from "@/lib/market-shared";
 import { buildMarketWorkbook } from "@/lib/xlsx-market";
 
 /**
@@ -11,8 +11,9 @@ import { buildMarketWorkbook } from "@/lib/xlsx-market";
  *   GET /api/weekly/xlsx            # 가장 최근 파일 + 내려받는 시점의 시세(화면과 같다)
  *   GET /api/weekly/xlsx?as=261102  # 그 접두사(날짜 또는 날짜-시각)의 파일 (없으면 최근 파일)
  *   GET /api/weekly/xlsx?live=0     # 시세를 덧씌우지 않고 파일 그대로
- *   GET /api/weekly/xlsx?base=261103-1559  # 전주比를 그 스냅샷(지난 보고 시점 값) 대비로 — 화면의 "전주比 기준"과 같게
- *   GET /api/weekly/xlsx?base=close:2026-11-06  # 전주比를 그날 종가 대비로
+ *   GET /api/weekly/xlsx?base=261103-1559  # 전주比·환율표 직전보고일比를 그 스냅샷(지난 보고 시점 값) 대비로 — 화면의 "전주比 기준"과 같게
+ *   GET /api/weekly/xlsx?base=close:2026-11-06  # 그날 종가 대비로
+ *   base 가 없으면 화면의 기본값과 같다 — 기준일보다 앞선 가장 최근 보고.
  */
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -28,11 +29,12 @@ export async function GET(request: NextRequest) {
 
   const live = request.nextUrl.searchParams.get("live") === "0" ? file : overlayLiveMarket(file, await getLiveQuotes());
   const base = request.nextUrl.searchParams.get("base");
+  const reports = await listMarketSnapshots();
   const snapshot = !base
-    ? null
+    ? defaultSnapshot(reports, live.asOf)
     : base.startsWith("close:")
-      ? (buildCloseSnapshots(live).find((s) => s.prefix === base) ?? null)
-      : ((await listMarketSnapshots()).find((s) => s.prefix === base) ?? null);
+      ? (buildCloseSnapshots({ ...live, recentCloses: await fxRecentCloses(live.asOf) }).find((s) => s.prefix === base) ?? null)
+      : (reports.find((s) => s.prefix === base) ?? null);
   const market = applyCompareBase(live, snapshot);
   const bytes = buildMarketWorkbook(market);
   const name = `${market.asOf.slice(2).replaceAll("-", "")}-weekly-market.xlsx`;

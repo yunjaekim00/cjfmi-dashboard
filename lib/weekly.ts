@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { SERIES, type SeriesDef, type SeriesId } from "@/lib/catalog";
 import { formatChange, formatKoreanDate, formatNumber } from "@/lib/format";
-import { getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
+import { fxRecentCloses, getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
 import { latestOnOrBefore, pickWeekAgo, stampKey } from "@/lib/market-shared";
 import { fetchEcosSeries } from "@/lib/sources/ecos";
 import { fetchFredSeries } from "@/lib/sources/fred";
@@ -662,15 +662,17 @@ export async function getWeeklyBrief(options: Options = {}): Promise<WeeklyBrief
   const brief = await resolveBrief(options);
   // 차트·환율표 자료는 본문과 별도 파일이다 — 접두사가 가장 늦은 파일을 붙이고, 둘 다 지금 시세로 덧씌운다.
   // 과거 파일들의 스냅샷 목록은 화면의 "전주比 기준" 드롭다운이 된다.
+  // "종가 기준"용 최근 일별 값: 국고채 3년은 ECOS 에서, 환율표의 나머지 통화는 스크립트 이력 캐시에서.
   const today = todayKst();
-  const [market, snapshots, extra] = await Promise.all([
+  const [market, snapshots, extra, fxCloses] = await Promise.all([
     readMarketFile(),
     listMarketSnapshots(),
     Promise.all(EXTRA_CLOSE_IDS.map(async (id) => [id, await recentSeries(id, today)] as const)),
+    fxRecentCloses(today),
   ]);
   const result = await attachLive(brief, market);
   return result.market
-    ? { ...result, market: { ...result.market, snapshots, recentCloses: Object.fromEntries(extra) } }
+    ? { ...result, market: { ...result.market, snapshots, recentCloses: { ...fxCloses, ...Object.fromEntries(extra) } } }
     : result;
 }
 

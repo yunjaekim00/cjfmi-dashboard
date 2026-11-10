@@ -2,6 +2,7 @@
 
 import {
   CHART_SPECS,
+  FX_SERIES,
   FX_SPECS,
   annotationBelow,
   dateFraction,
@@ -11,6 +12,7 @@ import {
   formatTickDate,
   formatValue,
   formatWeekChange,
+  fxCompare,
   kstDateOf,
   marketWindow,
   snapshotLabel,
@@ -164,7 +166,11 @@ function MarketChartSvg({ spec, chart, market, first, baseline }: ChartProps) {
   );
 }
 
-function FxTable({ market }: { market: WeeklyMarket }) {
+/**
+ * 환율표 — 최근치 · 전쟁직전(2/27)比 · 직전보고일比. 마지막 행의 괄호 날짜는 오른쪽 "전주比 기준"에서 고른 시점이고,
+ * 값은 지금 시세를 그 시점 값과 비교한 절상(+)·절하(−) 율이다.
+ */
+function FxTable({ market, baseline }: { market: WeeklyMarket; baseline: MarketSnapshot | null }) {
   const items = new Map(market.fx.items.map((item) => [item.id, item]));
   // 환율표의 기준일 — 한국은행 고시(08:30)가 있는 가장 늦은 날
   const asOf = market.fx.items
@@ -212,13 +218,26 @@ function FxTable({ market }: { market: WeeklyMarket }) {
             );
           })}
         </tr>
+        <tr>
+          <td>직전보고일{baseline ? `(${formatTickDate(kstDateOf(baseline.at))}일)` : ""}比</td>
+          {FX_SPECS.map((spec) => {
+            const item = items.get(spec.id);
+            const compare = item ? fxCompare(spec, item, baseline) : null;
+            return (
+              <td key={spec.id} title={compare ? `${formatTickDate(compare.date)}일 ${formatValue(spec, compare.value)} 대비` : undefined}>
+                {compare ? formatSignedPct(compare.changePct, 1, "%") : "-"}
+              </td>
+            );
+          })}
+        </tr>
       </tbody>
     </table>
   );
 }
 
-/** 종가 기준에서 계열 이름 — 차트 제목, 차트에 없는 계열은 따로 */
+/** 종가 기준에서 계열 이름 — 차트 제목, 차트에 없는 계열(환율표 통화 · 국고채 3년)은 따로 */
 const SERIES_NAMES: Record<string, string> = Object.fromEntries([
+  ...FX_SPECS.map((spec) => [FX_SERIES[spec.id], `환율표 ${spec.label}`]),
   ...CHART_SPECS.map((spec) => [spec.id, spec.title]),
   ["ktb3", "국고채 3년"],
 ]);
@@ -329,7 +348,7 @@ function Notes({ market, baseline }: { market: WeeklyMarket; baseline: MarketSna
         1년 이력: FRED(S&P500 · 美 10년물 · WTI 쿠싱 현물), 한국은행 ECOS(KOSPI · 국고채 10년 · 환율 매매기준율), 美
         10년물은 재무부 일별 금리표로 보충. 환율표 비교 시점 값은 한국은행 고시(08:30) 기준, 달러인덱스 비교 시점은
         ICE 산식으로 계산, 위안은 교차환율. WTI 최근치는 선물 근월물이라 현물 이력과 기준이 다르다.
-        {baseline ? ` 전주比는 ${snapshotLabel(baseline)} 대비.` : " 전주比는 지난주 같은 요일 대비."}
+        {baseline ? ` 전주比와 환율표 직전보고일比는 ${snapshotLabel(baseline)} 대비.` : " 전주比는 지난주 같은 요일 대비."}
         {notLive.length ? ` ※ 실시간 시세를 못 받아 집계치 사용: ${notLive.join(", ")}.` : ""}
         {overridden.length ? ` ※ 출처 집계 전 종가(CNBC 마감 시세·기사): ${overridden.join(", ")}.` : ""}
         {market.file ? ` · data/${market.file}` : ""}
@@ -396,7 +415,7 @@ export function MarketPanel({
           })}
         </div>
 
-        <FxTable market={market} />
+        <FxTable market={market} baseline={baseline} />
       </div>
 
       <Notes market={market} baseline={baseline} />

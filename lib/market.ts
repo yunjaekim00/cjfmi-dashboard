@@ -5,16 +5,20 @@ import { z } from "zod";
 
 import { fetchLiveQuotes, usCloseDate, type LiveQuotesResult } from "@/lib/market-live";
 import {
+  FX_CLOSE_IDS,
   FX_SERIES,
   FX_SPECS,
   MARKET_CHART_IDS,
   MARKET_FX_IDS,
   appreciationPct,
+  fxCompare,
   marketWindow,
   pickWeekAgo,
+  shiftDays,
   snapshotLabel,
   snapshotPoint,
   stampKey,
+  type MarketPoint,
   type MarketSnapshot,
   type WeeklyMarket,
 } from "@/lib/market-shared";
@@ -161,14 +165,83 @@ export async function listMarketSnapshots(): Promise<MarketSnapshot[]> {
   return out.sort((a, b) => a.at.localeCompare(b.at));
 }
 
-/** 고른 스냅샷을 전주比의 비교점으로 — 차트의 weekAgo 를 그 값으로 바꾼다 (엑셀용. 화면은 브라우저에서 같은 계산을 한다). */
+/**
+ * 고른 스냅샷을 비교점으로 — 차트의 weekAgo 를 그 값으로 바꾸고 환율표 항목에 "직전보고일比"(compare)를 채운다
+ * (엑셀용. 화면은 브라우저에서 같은 계산을 한다).
+ */
 export function applyCompareBase(market: WeeklyMarket, snapshot: MarketSnapshot | null): WeeklyMarket {
   if (!snapshot) return market;
   return {
     ...market,
     compareBase: { prefix: snapshot.prefix, at: snapshot.at, label: snapshotLabel(snapshot) },
     charts: market.charts.map((chart) => ({ ...chart, weekAgo: snapshotPoint(snapshot, chart.id) ?? chart.weekAgo })),
+    fx: {
+      ...market.fx,
+      items: market.fx.items.map((item) => {
+        const spec = FX_SPECS.find((s) => s.id === item.id);
+        return { ...item, compare: spec ? fxCompare(spec, item, snapshot) : null };
+      }),
+    },
   };
+}
+
+// ───────────────────────── 환율표 계열의 최근 일별 값 ─────────────────────────
+
+/** scripts/weekly-market.mjs 의 1년 이력 캐시 */
+const HISTORY_FILE = "market-history.json";
+const HistoryFile = z.object({
+  series: z.record(
+    z.string(),
+    z.object({ points: z.array(Point).default([]), overrides: z.record(z.string(), z.number()).default({}) })
+  ),
+});
+
+type HistoryMemo = { closes: Record<string, MarketPoint[]>; expiresAt: number };
+const historyMemo: Map<string, HistoryMemo> = ((globalThis as Record<string, unknown>).__marketHistoryMemo ??=
+  new Map()) as Map<string, HistoryMemo>;
+
+/**
+ * 차트에 없는 환율표 계열(달러인덱스·유로·엔·위안·동)의 최근 3주 일별 값 — "종가 기준"의 직전보고일比에 쓴다
+ * (buildCloseSnapshots 의 recentCloses). 출처는 스크립트의 이력 캐시 data/market-history.json(ECOS 고시, 달러인덱스는
+ * ICE 산식, 위안은 교차환율)이라 마지막 /weekly 실행일까지만 있다 — 그 뒤 날짜는 buildCloseSnapshots 가 직전 값으로
+ * 대신하고 화면이 그 날짜를 밝힌다. 파일이 없거나 형식이 틀리면 빈 객체.
+ */
+export async function fxRecentCloses(today: string, days = 21): Promise<Record<string, MarketPoint[]>> {
+  let mtime: number;
+  try {
+    mtime = (await stat(path.join(process.cwd(), "data", HISTORY_FILE))).mtimeMs;
+  } catch (error) {
+    if (isMissing(error)) return {};
+    throw error;
+  }
+  const key = `${today}:${mtime}`;
+  const cached = historyMemo.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.closes;
+
+  const since = shiftDays(today, -days);
+  const closes: Record<string, MarketPoint[]> = {};
+  try {
+    const parsed = HistoryFile.safeParse(JSON.parse(await readFile(path.join(process.cwd(), "data", HISTORY_FILE), "utf8")));
+    if (!parsed.success) {
+      console.warn(`[market] data/${HISTORY_FILE} 형식 오류:`, parsed.error.issues.slice(0, 3));
+    } else {
+      for (const id of FX_CLOSE_IDS) {
+        const entry = parsed.data.series[id];
+        if (!entry) continue;
+        // 출처 값 위에 --set 덮어쓰기 — 출처에 그 날짜가 있으면 출처가 이긴다 (스크립트의 effectivePoints 와 같다)
+        const byDate = new Map<string, number>(Object.entries(entry.overrides));
+        for (const point of entry.points) byDate.set(point.date, point.value);
+        closes[id] = [...byDate.entries()]
+          .map(([date, value]) => ({ date, value }))
+          .filter((p) => p.date >= since)
+          .sort((a, b) => a.date.localeCompare(b.date));
+      }
+    }
+  } catch (error) {
+    console.warn(`[market] data/${HISTORY_FILE} 을 읽지 못했습니다:`, error instanceof Error ? error.message : error);
+  }
+  historyMemo.set(key, { closes, expiresAt: Date.now() + CACHE_MS });
+  return closes;
 }
 
 // ───────────────────────── 열람 시점 시세 ─────────────────────────
