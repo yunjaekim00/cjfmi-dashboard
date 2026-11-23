@@ -1,18 +1,23 @@
 import { Sparkline } from "@/components/Sparkline";
 import { formatChange, formatNumber, formatPeriod } from "@/lib/format";
-import type { IndicatorSummary } from "@/lib/types";
+import type { ChangeStyle, Delta, IndicatorSummary } from "@/lib/types";
 
 /**
- * 종합지표 탭의 카드 한 장.
+ * 종합지표 탭의 카드 한 장. 값 아래에 전일대비·전월대비 증감을 한 줄씩 적는다.
  * 상승은 빨강, 하락은 파랑 — 국내 금융 지표 표기 관행을 따른다.
  */
 export function IndicatorCard({ indicator }: { indicator: IndicatorSummary }) {
-  const { label, unit, value, change, changePct, asOf, period, digits, changeStyle, spark, stepSpark } =
+  const { label, unit, value, day, month, trend, asOf, period, digits, changeStyle, spark, stepSpark } =
     indicator;
 
-  const rising = change > 0;
-  const flat = change === 0;
-  const color = flat ? "var(--muted)" : rising ? "var(--up)" : "var(--down)";
+  // 월별 계열이면 직전 관측치가 곧 전월이라 한 줄만 적는다.
+  const rows: Array<{ name: string; delta: Delta | null }> =
+    period === "month"
+      ? [{ name: "전월대비", delta: day }]
+      : [
+          { name: "전일대비", delta: day },
+          { name: "전월대비", delta: month },
+        ];
 
   return (
     <div className="rounded-2xl border border-line bg-card px-4 py-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
@@ -27,20 +32,58 @@ export function IndicatorCard({ indicator }: { indicator: IndicatorSummary }) {
             {unit ? <span className="text-[12px] text-muted">{unit}</span> : null}
           </div>
 
-          <div
-            className="tabular mt-0.5 text-[12px] font-medium whitespace-nowrap"
-            style={{ color }}
-          >
-            {formatChange(changeStyle, change, changePct, digits)}
-          </div>
+          <dl className="tabular mt-0.5 grid grid-cols-[auto_auto] gap-x-1.5 text-[12px] font-medium whitespace-nowrap">
+            {rows.map((row) => (
+              <ChangeRow
+                key={row.name}
+                name={row.name}
+                delta={row.delta}
+                style={changeStyle}
+                digits={digits}
+                period={period}
+              />
+            ))}
+          </dl>
 
           <div className="tabular mt-0.5 text-[11px] text-muted">{formatPeriod(asOf, period)}</div>
         </div>
 
         <div className="mt-1 min-w-0 flex-1 overflow-hidden">
-          <Sparkline points={spark} color={color} step={stepSpark} />
+          <Sparkline points={spark} color={changeColor(trend)} step={stepSpark} />
         </div>
       </div>
     </div>
+  );
+}
+
+function changeColor(change: number): string {
+  if (change === 0) return "var(--muted)";
+  return change > 0 ? "var(--up)" : "var(--down)";
+}
+
+/** "전일대비  −3.0 (−0.22%)" 한 줄. 비교할 자료가 없으면 "-". 마우스를 올리면 비교한 날짜가 보인다. */
+function ChangeRow({
+  name,
+  delta,
+  style,
+  digits,
+  period,
+}: {
+  name: string;
+  delta: Delta | null;
+  style: ChangeStyle;
+  digits: number;
+  period: "day" | "month";
+}) {
+  return (
+    <>
+      <dt className="font-normal text-muted">{name}</dt>
+      <dd
+        style={{ color: delta ? changeColor(delta.change) : "var(--muted)" }}
+        title={delta ? `${formatPeriod(delta.baseDate, period)} 대비` : "비교할 자료 없음"}
+      >
+        {delta ? formatChange(style, delta.change, delta.changePct, digits) : "-"}
+      </dd>
+    </>
   );
 }

@@ -15,7 +15,7 @@ import {
 } from "@/lib/market-shared";
 import { toMs } from "@/lib/series";
 import type { WeeklyState } from "@/lib/useWeeklyBrief";
-import type { WeeklyBrief, WeeklyIndicator } from "@/lib/weekly-types";
+import { REACTION_CATEGORIES, type WeeklyBrief, type WeeklyIndicator } from "@/lib/weekly-types";
 
 /*
  * "3. 주간 모니터링" 탭.
@@ -80,6 +80,10 @@ function Bullet({ label, text }: { label?: string; text: string }) {
 }
 
 function BriefBox({ brief }: { brief: WeeklyBrief }) {
+  // 시장반응은 파일의 순서와 무관하게 원자재 → 금리 → 주가 → 외환으로 보여준다
+  const items = [...brief.reaction.items].sort(
+    (a, b) => REACTION_CATEGORIES.indexOf(a.category) - REACTION_CATEGORIES.indexOf(b.category)
+  );
   return (
     <div className="wk-box">
       <Headline label="주간이슈" text={brief.issue.headline} />
@@ -88,7 +92,7 @@ function BriefBox({ brief }: { brief: WeeklyBrief }) {
       ))}
 
       <Headline label="시장반응" text={brief.reaction.headline} />
-      {brief.reaction.items.map((item, index) => (
+      {items.map((item, index) => (
         <Bullet key={`${item.category}-${index}`} label={item.category} text={item.text} />
       ))}
     </div>
@@ -122,7 +126,7 @@ function LoadingBox() {
         <div className="h-4 w-9/12 animate-pulse rounded bg-[#ececec]" />
       </div>
       <p className="mt-5 text-[12px] font-normal text-muted" style={{ fontFamily: "inherit" }}>
-        Bloomberg · 국제금융센터 기사를 검색해 요약합니다. 보통 1~2분 걸립니다.
+        국제금융센터 · Bloomberg · CNBC 등의 기사를 검색해 요약합니다. 보통 1~2분 걸립니다.
       </p>
     </div>
   );
@@ -156,8 +160,8 @@ function Meta({
           {brief.source === "sample"
             ? " · 미리보기 — 참고 보고서 원문 (모델 호출 없음)"
             : brief.source === "file"
-              ? " · Claude Code(/weekly)가 Bloomberg · 국제금융센터 기사를 읽고 정리"
-              : " · Bloomberg · 국제금융센터 기사를 Claude 가 읽고 정리"}
+              ? " · Claude Code(/weekly)가 국제금융센터 · Bloomberg · FT · WSJ · Reuters · CNBC 등 기사를 읽고 정리"
+              : " · 국제금융센터 · Bloomberg · CNBC 기사를 Claude 가 읽고 정리"}
         </span>
       </span>
       <span className="flex items-center gap-2 text-muted">

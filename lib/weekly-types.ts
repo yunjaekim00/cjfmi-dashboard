@@ -15,7 +15,8 @@ export type {
 } from "@/lib/market-shared";
 
 /** 시장반응 분야. 화면 순서는 모델이 정한다 — 그 주의 주도 요인을 앞에 둔다. */
-export const REACTION_CATEGORIES = ["주가", "금리", "외환", "원자재"] as const;
+/** 시장반응 네 줄의 보고 순서 — 원자재 → 금리 → 주가 → 외환 (사용자 지시, 2026-11-16). 화면은 이 순서로 정렬한다. */
+export const REACTION_CATEGORIES = ["원자재", "금리", "주가", "외환"] as const;
 export type ReactionCategory = (typeof REACTION_CATEGORIES)[number];
 
 /** 모델에 넘겨 준 지표 주간 변동. 화면 아래 각주로도 보여준다. */

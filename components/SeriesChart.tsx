@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -21,9 +22,11 @@ import {
   formatNumber,
   formatShortDate,
   formatYearTick,
+  formatYmdTick,
 } from "@/lib/format";
 import {
   buildTimeTicks,
+  endTicksAtLatest,
   mergeSeries,
   niceScale,
   rangeStartMs,
@@ -57,7 +60,7 @@ type Props = {
 };
 
 export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRange = "1Y" }: Props) {
-  const [range, setRange] = useState<RangeKey>(defaultRange);
+  const [range, setRange] = useState<RangeKey>(spec.defaultRange ?? defaultRange);
 
   const merged = useMemo(() => {
     const input: Record<string, Point[]> = {};
@@ -79,10 +82,11 @@ export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRang
     return { rows: decimate(rows), startMs, scale: niceScale(values) };
   }, [merged, latestMs, earliestMs, range, spec.series]);
 
-  const { ticks, unit } = useMemo(
-    () => buildTimeTicks(view.startMs, latestMs),
-    [view.startMs, latestMs]
-  );
+  // 날짜를 그대로 적는 축(환율)은 마지막 눈금이 최근일이어야 한다 — 사용자 요청(2026-11-16).
+  const { ticks, unit } = useMemo(() => {
+    const built = buildTimeTicks(view.startMs, latestMs);
+    return spec.axisDate ? { ...built, ticks: endTicksAtLatest(built.ticks, view.startMs, latestMs) } : built;
+  }, [view.startMs, latestMs, spec.axisDate]);
 
   const latestDate = merged.length ? merged[merged.length - 1].date : null;
 
@@ -91,9 +95,10 @@ export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRang
     view.rows.some((row) => typeof row[entry.seriesId] === "number")
   );
 
-  // 표시할 데이터가 실제로 있는 구간만 활성화한다.
+  // 표시할 데이터가 실제로 있는 구간만 활성화한다. 자료 시작이 구간 시작보다 일주일 안쪽으로 늦는 건 봐준다
+  // (딱 2년치 자료의 2Y 처럼 — 주말에 걸려 하루이틀 모자라도 그 구간이다).
   const isAvailable = (candidate: RangeKey) =>
-    candidate === "전체" || rangeStartMs(latestMs, candidate) >= earliestMs - 86_400_000;
+    candidate === "전체" || rangeStartMs(latestMs, candidate) >= earliestMs - 7 * 86_400_000;
 
   return (
     <section className="flex h-full flex-col rounded-2xl border border-line bg-card px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
@@ -101,7 +106,7 @@ export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRang
         <div>
           <h2 className="text-[15px] font-bold text-ink">{spec.title}</h2>
           <p className="tabular mt-1.5 text-[12px] text-muted">
-            일별 · 최신: {latestDate ? formatKoreanDate(latestDate) : "—"}
+            {spec.cadence ?? "일별"} · 최신: {latestDate ? formatKoreanDate(latestDate) : "—"}
           </p>
         </div>
         <RangeTabs value={range} onChange={setRange} available={isAvailable} />
@@ -114,8 +119,11 @@ export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRang
 
         {view.rows.length ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={view.rows} margin={{ top: 6, right: 12, bottom: 4, left: 16 }}>
+            {/* 끝 눈금 라벨("26.11.16")이 축 끝에 가운데 맞춤으로 놓이므로 오른쪽 여백을 그만큼 둔다 */}
+            <LineChart data={view.rows} margin={{ top: 6, right: spec.axisDate ? 30 : 12, bottom: 4, left: 16 }}>
               <CartesianGrid vertical={false} stroke="var(--grid)" strokeWidth={1} />
+              {/* 증감률 차트의 0선 — 구간 안에 0 이 없으면 recharts 가 알아서 숨긴다 */}
+              {spec.zeroLine ? <ReferenceLine y={0} stroke="var(--muted)" strokeDasharray="3 3" strokeWidth={1} /> : null}
 
               <XAxis
                 dataKey="t"
@@ -124,7 +132,9 @@ export function SeriesChart({ spec, series, fetchedAt, height = 380, defaultRang
                 domain={[view.startMs, latestMs]}
                 ticks={ticks}
                 tickFormatter={
-                  unit === "day" ? formatDayTick : unit === "month" ? formatMonthTick : formatYearTick
+                  spec.axisDate === "yy.m.d"
+                    ? formatYmdTick
+                    : unit === "day" ? formatDayTick : unit === "month" ? formatMonthTick : formatYearTick
                 }
                 tick={{ fontSize: 11, fill: "var(--muted)" }}
                 tickMargin={10}
@@ -227,6 +237,7 @@ function ChartTooltip({ active, payload, label, spec }: TooltipProps) {
               <span className="text-ink-2">{entry.label}</span>
               <span className="tabular ml-auto font-semibold text-ink">
                 {formatNumber(found.value, spec.digits)}
+                {spec.valueSuffix ?? ""}
               </span>
             </div>
           );

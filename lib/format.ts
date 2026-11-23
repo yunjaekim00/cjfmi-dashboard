@@ -66,9 +66,15 @@ export function formatDayTick(t: number): string {
   return `${d.getUTCMonth() + 1}.${d.getUTCDate()}`;
 }
 
+/** epoch ms -> "26.8.21" (두 자리 연도.월.일 — 환율 차트 x축) */
+export function formatYmdTick(t: number): string {
+  const d = new Date(t);
+  return `${String(d.getUTCFullYear()).slice(2)}.${d.getUTCMonth() + 1}.${d.getUTCDate()}`;
+}
+
 /**
- * 지표 성격에 맞는 변화량 표기.
- * 금리는 bp, 정책금리는 %p(전월대비), 환율은 절대값과 변화율을 함께 쓴다.
+ * 지표 성격에 맞는 변화량 표기. 비교 시점("전일대비" 등)은 부르는 쪽이 적는다.
+ * 금리는 bp, 정책금리는 %p, 환율·지수는 절대값과 변화율을 함께 쓴다.
  */
 export function formatChange(
   style: "bp" | "pp" | "pct",
@@ -77,6 +83,18 @@ export function formatChange(
   digits: number
 ): string {
   if (style === "bp") return `${formatSigned(Math.round(change * 100), 0)}bp`;
-  if (style === "pp") return `${formatSigned(change, digits)}%p(전월대비)`;
+  if (style === "pp") return `${formatSigned(change, digits)}%p`;
   return `${formatSigned(change, digits)} (${formatSigned(changePct, 2)}%)`;
+}
+
+/** "2025-10-01" -> "25.10" (월별 차트 x축) */
+export function formatShortMonth(date: string): string {
+  const [y, m] = date.split("-");
+  return `${y.slice(2)}.${Number(m)}`;
+}
+
+/** 증감의 글자색 — 한국 관행대로 증가 빨강, 감소 파랑, 0 은 회색 */
+export function changeColor(value: number): string {
+  if (value === 0) return "var(--muted)";
+  return value > 0 ? "var(--up)" : "var(--down)";
 }

@@ -6,6 +6,7 @@ import { revalidateTag, unstable_cache } from "next/cache";
 import { z } from "zod";
 
 import { SERIES, type SeriesDef, type SeriesId } from "@/lib/catalog";
+import { fetchCnbcSeries } from "@/lib/sources/cnbc";
 import { formatChange, formatKoreanDate, formatNumber } from "@/lib/format";
 import { fxRecentCloses, getLiveQuotes, listMarketSnapshots, overlayLiveMarket, readMarketFile } from "@/lib/market";
 import { latestOnOrBefore, pickWeekAgo, stampKey } from "@/lib/market-shared";
@@ -42,14 +43,17 @@ const MODEL = process.env.WEEKLY_MODEL?.trim() || "claude-opus-5-5";
 
 /**
  * 뉴스 출처. 검색·열람 모두 이 도메인 안에서만 한다 (하위 도메인 자동 포함).
- * 앞의 둘이 주 출처이고, 뒤의 둘은 韓 증시·외환 세부(외국인 수급, 수출업체 매도 등)를
+ * 앞의 셋(국제금융센터·Bloomberg·CNBC)이 주 출처이고, 뒤의 둘은 韓 증시·외환 세부(외국인 수급, 수출업체 매도 등)를
  * 보충할 때만 쓰라고 프롬프트에서 지시한다. 출처를 바꾸려면 여기만 고치면 된다.
- * (Reuters 는 Anthropic 크롤러를 차단해 검색이 되지 않는다 — 넣어도 결과가 없다.)
+ * ft.com · wsj.com · reuters.com 은 넣으면 안 된다 — Anthropic 크롤러를 막는 도메인이라 web_search 가
+ * 400("domains are not accessible to our user agent")으로 요청 자체를 거절한다 (2026-11-11 확인).
+ * FT·WSJ·Reuters 보도는 Bloomberg·CNBC·국제금융센터가 인용한 범위에서만 참고한다. (Claude Code 의 /weekly 는
+ * 도메인 제한 없이 검색하므로 Reuters 전재 기사 등을 더 읽을 수 있다 — .claude/skills/weekly/SKILL.md)
  */
-const NEWS_DOMAINS = ["bloomberg.com", "kcif.or.kr", "yna.co.kr", "einfomax.co.kr"];
+const NEWS_DOMAINS = ["kcif.or.kr", "bloomberg.com", "cnbc.com", "yna.co.kr", "einfomax.co.kr", "cmegroup.com"];
 
-/** 요청 한 번에 허용하는 검색·열람 횟수. 검색은 건당 $0.01. */
-const MAX_SEARCHES = 8;
+/** 요청 한 번에 허용하는 검색·열람 횟수. 검색은 건당 $0.01. 검색 갈래 다섯에 교차 확인 여유를 둔 값 */
+const MAX_SEARCHES = 10;
 const MAX_FETCHES = 4;
 
 /** 서버 쪽 도구 루프가 길어져 pause_turn 으로 끊기면 이 횟수까지 이어 받는다. */
@@ -108,7 +112,7 @@ function toStamp(iso: string, cycle: "D" | "M"): string {
   return cycle === "D" ? iso.replaceAll("-", "") : iso.slice(0, 7).replace("-", "");
 }
 
-/** 최근 구간만 받아온다. 조회 창이 하나라 ECOS 호출은 계열당 1회다. */
+/** 최근 구간만 받아온다. 조회 창이 하나라 ECOS 호출은 계열당 1회다. CNBC(환율)는 일별 범위 한 번이다. */
 async function fetchRecent(def: SeriesDef, since: string, until: string): Promise<Point[]> {
   if (def.source === "ecos") {
     return fetchEcosSeries({
@@ -119,7 +123,9 @@ async function fetchRecent(def: SeriesDef, since: string, until: string): Promis
       end: toStamp(until, def.cycle),
     });
   }
-  return fetchFredSeries(def.seriesId, since);
+  if (def.source === "fred") return fetchFredSeries(def.seriesId, since);
+  const points = await fetchCnbcSeries(def.symbol, { since, scale: def.scale });
+  return points.filter((point) => point.date <= until);
 }
 
 /**
@@ -193,19 +199,19 @@ export const SAMPLE_BRIEF: WeeklyBrief = {
     items: [
       {
         category: "원자재",
-        text: "{{WTI}}는 이란의 호르무즈 공격 지속과 美 원유재고 급감(-860만배럴, 전주比)에 {{100달러 상회}}, {{금 가격}}은 금리 부담에도 증시조정/중동불안에 따른 안전자산 수요로 {{보합}}",
-      },
-      {
-        category: "주가",
-        text: "{{S&P500}}와 {{KOSPI}} 모두 AI 투자 관련 차입 우려와 유가 상승 부담에 {{동반 하락}}, 다만 KOSPI는 저가매수 유입으로 13거래일만에 외국인 순매수 전환하며 낙폭 축소",
+        text: "{{WTI}}는 이란의 호르무즈 공격 지속과 美 원유재고 급감(-860만배럴, 전주比)에 {{급등}}, {{금 가격}}은 금리 부담에도 증시조정/중동불안에 따른 안전자산 수요로 {{보합}}",
       },
       {
         category: "금리",
         text: "{{美}}는 기술주 조정에 따른 안전자산 수요로 {{하락}}, {{韓}}도 금통위 10월 기준금리 동결 전망(22일 豫)에도 불구 외국인 국채선물 매수세에 소폭 {{하락}}",
       },
       {
+        category: "주가",
+        text: "{{S&P500}}와 {{KOSPI}} 모두 AI 투자 관련 차입 우려와 유가 상승 부담에 {{동반 하락}}, 다만 KOSPI는 저가매수 유입으로 13거래일만에 외국인 순매수 전환하며 낙폭 축소",
+      },
+      {
         category: "외환",
-        text: "{{원달러}}는 반도체 수출 호조發 수출업체 달러 매도와 외국인 순매수 전환에 {{1,330원↓}}",
+        text: "{{원달러}}는 반도체 수출 호조發 수출업체 달러 매도와 외국인 순매수 전환에 {{하락}}",
       },
     ],
   },
@@ -237,22 +243,26 @@ function renderExample(brief: WeeklyBrief): string {
 const SYSTEM_PROMPT = `당신은 한국 대기업 경제연구 조직의 금융시장 모니터링 담당자다. 매주 임원 보고용 「금융시장 모니터링」의 [주간이슈]·[시장반응] 단락을 쓴다. 짧고 밀도 높은 개조식 문장으로, 아래 예시의 서식과 문체를 그대로 따른다.
 
 ## 자료 수집
-- web_search 로 대상 기간의 금융시장 뉴스를 찾는다. 주 출처는 Bloomberg(bloomberg.com)와 국제금융센터(kcif.or.kr — 국제금융속보, 주간 국제금융 주요이슈 및 전망)다. 연합뉴스·연합인포맥스는 韓 증시·외환의 세부(외국인 수급, 수출업체 달러 매도 등)를 보충할 때만 쓴다.
-- 관심 지표: 미국 주가지수(S&P500), 미국 국채금리(10년물), KOSPI, 원/달러 환율, WTI 유가. 이 지표들을 움직인 뉴스를 찾는다.
-- 검색은 최소 4회(① Bloomberg 주간 시장 정리 ② 국제금융센터 국제금융속보·주간 이슈 ③ 지표별 핵심 이벤트 — 연준·금통위·물가·고용·실적·지정학 ④ 韓 증시·환율 수급), 필요하면 web_fetch 로 본문을 읽는다.
+- web_search 로 대상 기간의 금융시장 뉴스를 찾는다. 주 출처는 국제금융센터(kcif.or.kr — 국제금융속보, 주간 국제금융 주요이슈 및 전망), Bloomberg(bloomberg.com), CNBC(cnbc.com)다 — 한 매체에 치우치지 말고 같은 사건을 두 매체 이상에서 확인한다. Financial Times·WSJ·Reuters 는 직접 검색할 수 없으므로(크롤러 차단) 이들 보도는 위 매체가 인용한 범위에서 참고한다. 연합뉴스·연합인포맥스는 韓 증시·외환의 세부(외국인 수급, 수출업체 달러 매도 등)를 보충할 때만 쓴다.
+- 관심 지표: 미국 주가지수(S&P500), 미국 국채금리(10년물), KOSPI, 원/달러 환율, WTI 유가. 이 지표들을 움직인 뉴스를 찾는다. 수치도 이 지표의 것을 찾는다 — 기사가 브렌트·나스닥·다우·코스닥 수치만 주면 요지만 쓰고 수치는 다른 기사에서 찾는다.
+- 검색은 최소 5회(① 국제금융센터 국제금융속보·주간 이슈 ② Bloomberg 주간 시장 정리 ③ CNBC 의 증시·금리·유가 기사 ④ 지표별 핵심 이벤트 — 연준·금통위·물가·고용·실적·지정학 ⑤ 韓 증시·환율 수급), 필요하면 web_fetch 로 본문을 읽는다. Bloomberg 는 본문 열람이 안 될 수 있다 — 그때는 검색 결과 요약으로 요지를 잡고 수치는 본문을 읽을 수 있는 기사(국제금융센터·CNBC)로 교차 확인한다.
 - 대상 기간 밖의 뉴스는 쓰지 않는다. 확인되지 않은 수치는 쓰지 않는다. 추측 금지.
+- 美 기준금리 인상·인하 확률 수치는 CME FedWatch(cmegroup.com 의 FedWatch Tool)를 직접 열어 확인한 경우에만 쓰고 "(FedWatch, 12일)"처럼 기준일을 붙인다. 열리지 않으면 수치를 아예 쓰지 않는다 — 기사가 인용한 FedWatch 수치나 다른 추정치로 대신하지 않고, "12월 기준금리 인상 기대 확산"처럼 방향만 쓴다.
 
 ## 내용 구성
-- [주간이슈]: 지표를 움직인 가장 중요한 뉴스 3개를 고른다. headline 은 그중 가장 중요한 이슈(그 주를 요약하는 한 문장, 쉼표로 두 절까지), points 는 나머지 두 개(각각 "주체, 사건으로 결과" 구조).
+- [주간이슈]: 그 주 금융시장 변동성에 가장 큰 영향을 준 이슈 두 개를 고른다. headline 은 두 이슈를 한 문장으로 잇는다(절 하나에 이슈 하나, 쉼표로 연결). points[0] 은 첫째 이슈의 상세, points[1] 은 둘째 이슈의 상세(발표된 수치, 발언 주체와 요지, 사건의 경과, 정책 기대의 변화)다 — headline 에 없는 제3의 이슈를 적지 않는다. points 는 각각 화면 한 줄 안에 들어가야 한다: 한글 기준 약 40자(숫자·영문이 섞이면 50자 안팎)까지.
+- [주간이슈]에는 지표 동향을 쓰지 않는다: 주가·금리·환율·유가의 수준이나 변동("10년물 5.15%", "KOSPI 5% 상승", "WTI 2% 반등")은 아래 [시장반응]이 따로 다루므로 중복된다. 이슈 자체의 사실 수치(물가 상승률, 실적, 인상 확률, 재고 등)는 괄호 안에 쓴다.
 - [시장반응] headline: 지표 움직임을 인과로 묶은 한 문장.
-- [시장반응] items: 주가(S&P500·KOSPI), 금리(美 10년물·韓 국고채), 외환(원/달러), 원자재(WTI, 필요시 금) 각 한 문장. 그 주의 주도 요인을 앞에 둔다(기본 순서 주가→금리→외환→원자재). "{{지표}}는 원인에 {{결과}}" 구조로, 제공된 지표 표의 방향·수준과 맞아야 한다.
+- [시장반응] items: 원자재(WTI, 필요시 금), 금리(美 10년물·韓 국고채), 주가(S&P500·KOSPI), 외환(원/달러) 각 한 문장 — 순서는 항상 원자재→금리→주가→외환이다. 주가는 美 S&P500·韓 KOSPI, 유가는 WTI 로만 쓴다 — 브렌트·나스닥·다우·코스닥은 적지 않는다. "{{지표}}는 원인에 {{결과}}" 구조로, 제공된 지표 표의 방향과 맞아야 한다. 지표 수치는 쓰지 않는다 — 종가·금리 수준(7,417, 5.13%, 1,339원, 85달러대, 5,000선)도, 주간 변동폭(몇 %, 몇 bp, 몇 원)도 괄호에도 본문에도 적지 않는다. 차트와 표가 보여주므로 중복이다. 변동 현황(상승·하락·급락·반등·보합·약보합)과 그 배경·이유 중심으로 쓴다. 원인 쪽 사실 수치(IEA 공급과잉 日 170만배럴, 美 원유재고 -860만배럴 등 지표가 아닌 것)는 괄호 안에 쓸 수 있다.
 
 ## 문체 규칙
-- 개조식·명사형 종결: "확대", "상승", "하락", "보합", "재부각". 서술형 어미("~했다", "~입니다") 금지.
+- 개조식·명사형 종결 — 예외 없이 모든 문장(주간이슈 headline·points, 시장반응 headline·items)은 명사형으로 끝낸다: "확대", "상승", "하락", "보합", "재부각", "차단", "지속". 서술형 어미("~했다", "~입니다")는 물론 동사·부사형 끝("~잇따라", "~이어", "~하며", "~하고", "~해서")도 금지 — "발언 잇따라"가 아니라 "발언 지속". 시장반응 headline 만 방향 화살표 {{↓}} 로 끝낼 수 있다.
 - 국가는 한자 약어: 美 韓 中 日 歐 英. 기관·회사 설명은 괄호 안에 짧게: 코어위브(AI 클라우드社).
 - 수치·근거는 괄호 안에: (-860만배럴, 전주比), (22일 豫). 괄호 안은 화면에서 작은 글씨로 그려진다.
-- 방향은 ↑ ↓ 를 쓸 수 있다. 한 문장은 한국어 45자 안팎, 최대 70자. 줄바꿈 없음.
-- 파란 강조 {{…}}: 시장반응 items 에서만 ① 지표 이름(WTI, S&P500, KOSPI, 원달러, 美, 韓 …) ② 결과 구절(방향·수준)에 붙인다. 시장반응 headline 에서는 화살표만 {{↓}} 처럼 감쌀 수 있다. 주간이슈에는 붙이지 않는다.
+- 방향은 ↑ ↓ 를 쓸 수 있다. 한 문장은 한국어 45자 안팎, 최대 70자(주간이슈 points 는 한 줄 — 약 40자). 줄바꿈 없음.
+- 파란 강조 {{…}}: 시장반응 items 에서만 ① 지표 이름(WTI, S&P500, KOSPI, 원달러, 美, 韓 …) ② 결과 구절(방향)에 붙인다. 시장반응 headline 에서는 화살표만 {{↓}} 처럼 감쌀 수 있다. 주간이슈에는 붙이지 않는다.
+- 쓰지 않는 말: "쇼크", "레버리지", "충격", "매파", "비둘기파". 대신 "급락", "차입", "긴축 발언/긴축 선호", "완화 발언/완화 선호"처럼 뜻을 풀어 쓴다.
+- 정책금리는 반드시 "기준금리"라고 밝힌다: "12월 인상", "금리 인상", "금리 인하"가 아니라 "12월 기준금리 인상", "기준금리 인하". "금리"만 쓰면 시장금리(국채금리)를 뜻한다.
 
 ## 서식 예시 (지난 보고서 원문 — 내용은 참고하지 말고 서식·문체만 따른다)
 ${renderExample(SAMPLE_BRIEF)}
@@ -261,8 +271,8 @@ ${renderExample(SAMPLE_BRIEF)}
 자료 수집이 끝나면 마지막에 아래 모양의 JSON 하나만 \`\`\`json 코드블록으로 출력한다. 코드블록 밖에 다른 글은 쓰지 않는다.
 {
   "issue": { "headline": "…", "points": ["…", "…"] },
-  "reaction": { "headline": "…", "items": [ { "category": "주가", "text": "…" }, { "category": "금리", "text": "…" }, { "category": "외환", "text": "…" }, { "category": "원자재", "text": "…" } ] },
-  "sources": [ { "title": "기사 제목", "publisher": "Bloomberg | 국제금융센터 | 연합뉴스 | 연합인포맥스", "url": "https://…", "date": "YYYY-MM-DD 또는 null" } ]
+  "reaction": { "headline": "…", "items": [ { "category": "원자재", "text": "…" }, { "category": "금리", "text": "…" }, { "category": "주가", "text": "…" }, { "category": "외환", "text": "…" } ] },
+  "sources": [ { "title": "기사 제목", "publisher": "국제금융센터 | Bloomberg | CNBC | 연합뉴스 | 연합인포맥스", "url": "https://…", "date": "YYYY-MM-DD 또는 null" } ]
 }
 sources 에는 실제로 참고한 기사 4~8건을 검색 결과의 URL 그대로 넣는다.`;
 

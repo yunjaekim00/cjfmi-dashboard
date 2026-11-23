@@ -1,9 +1,9 @@
 import type { MergedRow, Point } from "@/lib/types";
 
-export type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y" | "10Y" | "전체";
+export type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "2Y" | "3Y" | "5Y" | "10Y" | "전체";
 
 export const RANGE_KEYS: RangeKey[] = [
-  "1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "10Y", "전체",
+  "1M", "3M", "6M", "YTD", "1Y", "2Y", "3Y", "5Y", "10Y", "전체",
 ];
 
 /** "2026-08-25" -> epoch ms (UTC 자정 기준) */
@@ -24,7 +24,7 @@ export function rangeStartMs(latestMs: number, range: RangeKey): number {
   if (range === "YTD") return Date.UTC(d.getUTCFullYear(), 0, 1);
 
   const months: Record<Exclude<RangeKey, "전체" | "YTD">, number> = {
-    "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "3Y": 36, "5Y": 60, "10Y": 120,
+    "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24, "3Y": 36, "5Y": 60, "10Y": 120,
   };
 
   const back = new Date(latestMs);
@@ -52,17 +52,17 @@ export function mergeSeries(series: Record<string, Point[]>): MergedRow[] {
   return [...byDate.values()].sort((a, b) => a.t - b.t);
 }
 
-/** 최신 값과 직전 값의 차이. 관측치가 하나뿐이면 변화량 0. */
+/** 최신 값과 직전 값의 차이. 관측치가 하나뿐이면 baseline 은 null, 변화량 0. */
 export function latestChange(points: Point[]) {
   const latest = points.at(-1);
-  const previous = points.at(-2);
+  const previous = points.at(-2) ?? null;
 
   if (!latest) return null;
 
   const change = previous ? latest.value - previous.value : 0;
   const changePct = previous && previous.value !== 0 ? (change / previous.value) * 100 : 0;
 
-  return { latest, change, changePct };
+  return { latest, baseline: previous, change, changePct };
 }
 
 /**
@@ -88,7 +88,7 @@ export function changeVsMonthsAgo(points: Point[], months: number) {
   const change = latest.value - baseline.value;
   const changePct = baseline.value !== 0 ? (change / baseline.value) * 100 : 0;
 
-  return { latest, change, changePct };
+  return { latest, baseline, change, changePct };
 }
 
 /** 스파크라인용으로 마지막 n 개월치만 잘라낸다. */
@@ -147,6 +147,20 @@ export function buildTimeTicks(startMs: number, endMs: number) {
     if (t >= startMs) ticks.push(t);
   }
   return { ticks, unit: "year" as const };
+}
+
+/**
+ * 마지막 눈금을 자료의 최근 날짜로 바꾼다.
+ *
+ * 규칙적인 눈금(월초·연초)은 축의 끝이 어중간한 날짜라 최근일이 축에 안 보인다. 날짜를 그대로 적는
+ * 축(yy.m.d)에서는 최근일이 보여야 하므로 끝에 눈금을 하나 두고, 라벨이 겹칠 만큼 가까운 눈금은 뺀다
+ * (눈금 간격의 절반 또는 전체 폭의 12% 중 작은 쪽 안에 있으면).
+ */
+export function endTicksAtLatest(ticks: number[], startMs: number, endMs: number): number[] {
+  const span = Math.max(endMs - startMs, 1);
+  const step = ticks.length >= 2 ? ticks[ticks.length - 1] - ticks[ticks.length - 2] : span;
+  const minGap = Math.min(step / 2, span * 0.12);
+  return [...ticks.filter((t) => t < endMs - minGap), endMs];
 }
 
 /**

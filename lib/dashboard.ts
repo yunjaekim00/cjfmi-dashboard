@@ -1,5 +1,6 @@
 import { SERIES, USED_SERIES_IDS, type SeriesDef, type SeriesId } from "@/lib/catalog";
 import { thinForTransfer } from "@/lib/downsample";
+import { fetchCnbcSeries, overlayCnbcLive } from "@/lib/sources/cnbc";
 import { EcosError, fetchEcosSeries, takeCallStats } from "@/lib/sources/ecos";
 import { fetchFredSeries } from "@/lib/sources/fred";
 import type { DashboardData, Point, SeriesMap, SourceStatus } from "@/lib/types";
@@ -42,6 +43,21 @@ type Options = {
   since?: string;
 };
 
+/** 출처별 조회. ECOS·FRED 는 start 부터, CNBC 는 범위가 정해져 있어 since 만 넘긴다. */
+function fetchSeries(def: SeriesDef, options: Options): Promise<Point[]> {
+  if (def.source === "ecos") {
+    return fetchEcosSeries({
+      statCode: def.statCode,
+      cycle: def.cycle,
+      itemCode1: def.itemCode1,
+      start: options.since ? toStamp(options.since, def.cycle) : def.start,
+      end: toStamp(today(), def.cycle),
+    });
+  }
+  if (def.source === "fred") return fetchFredSeries(def.seriesId, options.since ?? def.start);
+  return fetchCnbcSeries(def.symbol, { since: options.since, scale: def.scale });
+}
+
 async function loadSeries(
   id: SeriesId,
   options: Options
@@ -50,16 +66,7 @@ async function loadSeries(
   const incremental = Boolean(options.since);
 
   try {
-    const data =
-      def.source === "ecos"
-        ? await fetchEcosSeries({
-            statCode: def.statCode,
-            cycle: def.cycle,
-            itemCode1: def.itemCode1,
-            start: options.since ? toStamp(options.since, def.cycle) : def.start,
-            end: toStamp(today(), def.cycle),
-          })
-        : await fetchFredSeries(def.seriesId, options.since ?? def.start);
+    const data = await fetchSeries(def, options);
 
     return {
       id,
@@ -92,8 +99,19 @@ export async function getDashboardData(options: Options = {}): Promise<Dashboard
   const loaded = await mapLimit(USED_SERIES_IDS, CONCURRENCY, (id) => loadSeries(id, options));
 
   const series: SeriesMap = {};
-  for (const entry of loaded) {
-    series[entry.id] = options.since ? entry.data : thinForTransfer(entry.data);
+  for (const entry of loaded) series[entry.id] = entry.data;
+
+  // 환율(CNBC)은 과거가 종가, 오늘(KST)은 실시간 시세 — 증분 조회도 오늘 점을 다시 받아 덮어쓴다.
+  await overlayCnbcLive(
+    USED_SERIES_IDS.flatMap((id) => {
+      const def: SeriesDef = SERIES[id];
+      return def.source === "cnbc" ? [{ id, symbol: def.symbol, scale: def.scale }] : [];
+    }),
+    series
+  );
+
+  if (!options.since) {
+    for (const id of Object.keys(series)) series[id] = thinForTransfer(series[id]);
   }
 
   const { liveCalls, memoHits } = takeCallStats();

@@ -1,6 +1,6 @@
 import { CARDS } from "@/lib/catalog";
 import { changeVsMonthsAgo, latestChange, tail } from "@/lib/series";
-import type { IndicatorSummary, SeriesMap } from "@/lib/types";
+import type { Delta, IndicatorSummary, Point, SeriesMap } from "@/lib/types";
 
 /**
  * 종합지표 카드 값 계산.
@@ -10,11 +10,14 @@ import type { IndicatorSummary, SeriesMap } from "@/lib/types";
 export function buildSummaries(series: SeriesMap): IndicatorSummary[] {
   return CARDS.flatMap((card) => {
     const points = series[card.seriesId] ?? [];
-    const change = card.compareMonthsBack
-      ? changeVsMonthsAgo(points, card.compareMonthsBack)
-      : latestChange(points);
+    const latest = points.at(-1);
+    if (!latest) return [];
 
-    if (!change) return [];
+    // 카드마다 전일대비(직전 관측치)와 전월대비(한 달 전 값)를 둘 다 적는다.
+    const day = toDelta(latestChange(points));
+    const month = toDelta(changeVsMonthsAgo(points, 1));
+    // 스파크라인 색은 대표 변화를 따른다 — 정책금리처럼 값이 며칠씩 그대로인 계열은 전월대비
+    const trend = card.compareMonthsBack ? toDelta(changeVsMonthsAgo(points, card.compareMonthsBack)) : day;
 
     const sparkSource = card.sparkSeriesId ? (series[card.sparkSeriesId] ?? points) : points;
 
@@ -23,10 +26,11 @@ export function buildSummaries(series: SeriesMap): IndicatorSummary[] {
         id: card.id,
         label: card.label,
         unit: card.unit,
-        value: change.latest.value,
-        change: change.change,
-        changePct: change.changePct,
-        asOf: change.latest.date,
+        value: latest.value,
+        day,
+        month,
+        trend: trend?.change ?? 0,
+        asOf: latest.date,
         period: card.period,
         digits: card.digits,
         changeStyle: card.changeStyle,
@@ -35,4 +39,12 @@ export function buildSummaries(series: SeriesMap): IndicatorSummary[] {
       } satisfies IndicatorSummary,
     ];
   });
+}
+
+type Comparison = { latest: Point; baseline: Point | null; change: number; changePct: number } | null;
+
+/** 비교할 관측치가 없거나 최신치 자신이면(자료가 그만큼 없음) null */
+function toDelta(comparison: Comparison): Delta | null {
+  if (!comparison?.baseline || comparison.baseline.date === comparison.latest.date) return null;
+  return { baseDate: comparison.baseline.date, change: comparison.change, changePct: comparison.changePct };
 }

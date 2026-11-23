@@ -1,3 +1,4 @@
+import type { RangeKey } from "@/lib/series";
 import type { ChangeStyle } from "@/lib/types";
 
 /**
@@ -6,6 +7,7 @@ import type { ChangeStyle } from "@/lib/types";
  *
  * ECOS 통계표·항목 코드는 StatisticItemList API 로 실제 확인한 값이다.
  * (특히 회사채 AA- 는 010300000 이고, 010320000 은 BBB- 라 헷갈리기 쉽다.)
+ * 환율은 모두 CNBC 시세를 쓴다 (사용자 지시, 2026-11-16) — 한국은행 고시보다 하루 빠르고 오늘 값은 장중에 움직인다.
  */
 
 /** 모든 계열의 조회 시작 시점. 1997년 외환위기가 들어오도록 1995년부터. */
@@ -27,18 +29,34 @@ export type SeriesDef =
       label: string;
       seriesId: string;
       start: string;
+    }
+  | {
+      source: "cnbc";
+      label: string;
+      /** CNBC 심볼 — 환율은 "KRW=" 처럼 RIC 모양, 지수는 ".DXY" */
+      symbol: string;
+      /** 값에 곱할 배수. 원/엔은 1엔당 원 시세(JPYKRW=)에 100 을 곱해 100엔당 원으로 맞춘다 */
+      scale?: number;
     };
 
 export const SERIES = {
-  // ── 환율 (한국은행 8.8.2.1 주요국 통화의 대원화환율) ──
-  usdkrw: {
-    source: "ecos", label: "원/달러 매매기준율",
-    statCode: "731Y001", cycle: "D", itemCode1: "0000001", start: ECOS_DAILY_START,
-  },
-  jpykrw: {
-    source: "ecos", label: "원/엔(100엔) 매매기준율",
-    statCode: "731Y001", cycle: "D", itemCode1: "0000002", start: ECOS_DAILY_START,
-  },
+  // ── 환율 (CNBC 시세, lib/sources/cnbc.ts) ──
+  // 과거는 종가(최근 3년 일별, 그 앞은 2011년부터 주별), 오늘(KST)은 실시간 시세로 덮어쓴다 (lib/dashboard.ts).
+  // 한국은행 고시가 필요하면 ECOS 731Y001(원화 환율)·731Y002(대미달러환율)에 있다 — 주간 모니터링 스크립트가 쓴다.
+  usdkrw: { source: "cnbc", label: "원/달러", symbol: "KRW=" },
+  // 원/엔(100엔)은 종합 지표 카드에만 쓴다 — 환율 탭은 엔/달러를 그린다
+  jpykrw: { source: "cnbc", label: "원/엔(100엔)", symbol: "JPYKRW=", scale: 100 },
+  usdjpy: { source: "cnbc", label: "엔/달러", symbol: "JPY=" },
+  dxy: { source: "cnbc", label: "달러인덱스", symbol: ".DXY" },
+  eurusd: { source: "cnbc", label: "달러/유로", symbol: "EUR=" },
+  usdcny: { source: "cnbc", label: "위안/달러", symbol: "CNY=" },
+  usdvnd: { source: "cnbc", label: "베트남 동/달러", symbol: "VND=" },
+  usdinr: { source: "cnbc", label: "인도 루피/달러", symbol: "INR=" },
+  usdidr: { source: "cnbc", label: "인도네시아 루피아/달러", symbol: "IDR=" },
+  usdmyr: { source: "cnbc", label: "말레이시아 링깃/달러", symbol: "MYR=" },
+  usdtry: { source: "cnbc", label: "튀르키예 리라/달러", symbol: "TRY=" },
+  usdbrl: { source: "cnbc", label: "브라질 헤알/달러", symbol: "BRL=" },
+  usdrub: { source: "cnbc", label: "러시아 루블/달러", symbol: "RUB=" },
 
   // ── 한국은행 기준금리 (722Y001) ──
   // 월별 계열은 당월이 끝나야 채워져서, 금리를 인상한 날 카드가 한 달 내내 옛 값을
@@ -155,30 +173,66 @@ export const CARDS: CardSpec[] = [
 
 // ───────────────────────── 차트 ─────────────────────────
 
-export type TabId = "overview" | "rates" | "fx" | "weekly";
+export type TabId = "overview" | "rates" | "fx" | "weekly" | "consumption";
 
 /** 차트를 두는 탭. 종합지표는 카드, 주간 모니터링은 뉴스 요약이라 차트가 없다. */
 export type ChartTabId = Extract<TabId, "rates" | "fx">;
 
+export type ChartSeries = {
+  /** 계열 id — 이 카탈로그의 SERIES 키이거나, 소비동향처럼 따로 받는 자료의 키 */
+  seriesId: string;
+  label: string;
+  color: string;
+  /** 계단 함수인 계열 (정책금리) */
+  step?: boolean;
+};
+
+/** SeriesChart 가 그리는 차트 한 장. 카탈로그 밖(국내 소비동향)에서도 만든다. */
 export type ChartSpec = {
   id: string;
-  tab: ChartTabId;
+  tab: TabId;
   title: string;
   /** y축 라벨 */
   unit: string;
   /** 값 표기 소수점 */
   digits: number;
-  series: Array<{
-    seriesId: SeriesId;
-    label: string;
-    color: string;
-    /** 계단 함수인 계열 (정책금리) */
-    step?: boolean;
-  }>;
+  /** 관측 주기 표기 (차트 머리글). 없으면 "일별" */
+  cadence?: string;
+  /** 처음 보여줄 구간. 없으면 1Y */
+  defaultRange?: RangeKey;
+  /** x축 날짜 표기. 없으면 구간에 따라 "8.21" · "Oct 2025" · "2026" */
+  axisDate?: "yy.m.d";
+  /** 증감률 차트처럼 0선을 그을지 */
+  zeroLine?: boolean;
+  /** 툴팁 값 뒤에 붙일 글자 ("%" 등) */
+  valueSuffix?: string;
+  series: ChartSeries[];
   sources: string[];
 };
 
-export const CHARTS: ChartSpec[] = [
+/** 이 카탈로그의 차트 — 계열은 SERIES 에 있는 것만 가리킨다 */
+export type CatalogChart = Omit<ChartSpec, "tab" | "series"> & {
+  tab: ChartTabId;
+  series: Array<ChartSeries & { seriesId: SeriesId }>;
+};
+
+/**
+ * 환율 차트 한 장 — 모두 CNBC 시세 한 계열 (사용자 지시, 2026-11-16).
+ * 제목은 "국가 통화 (통화/달러)" 로 통일, 기본 2Y 구간, x축 yy.m.d. 3Y 까지 일별이고 5Y·10Y·전체는 3년 전부터 주별 봉.
+ */
+function fxChart(id: SeriesId, title: string, unit: string, digits: number): CatalogChart {
+  const def: SeriesDef = SERIES[id];
+  return {
+    id, tab: "fx", title, unit, digits,
+    cadence: "일별 종가 · 3년 전부터는 주별 · 오늘은 실시간",
+    defaultRange: "2Y",
+    axisDate: "yy.m.d",
+    series: [{ seriesId: id, label: def.source === "cnbc" ? `CNBC ${def.symbol}` : def.label, color: COLOR.blue }],
+    sources: ["CNBC"],
+  };
+}
+
+export const CHARTS: CatalogChart[] = [
   {
     id: "policyRates", tab: "rates", title: "정책금리: 한·미·유로",
     unit: "%", digits: 2,
@@ -209,18 +263,19 @@ export const CHARTS: ChartSpec[] = [
     ],
     sources: ["한국은행"],
   },
-  {
-    id: "usdkrw", tab: "fx", title: "원/달러 환율",
-    unit: "원", digits: 1,
-    series: [{ seriesId: "usdkrw", label: "매매기준율(한국은행)", color: COLOR.blue }],
-    sources: ["한국은행「환율」"],
-  },
-  {
-    id: "jpykrw", tab: "fx", title: "원/엔(100엔) 환율",
-    unit: "원", digits: 1,
-    series: [{ seriesId: "jpykrw", label: "매매기준율(한국은행)", color: COLOR.blue }],
-    sources: ["한국은행「환율」"],
-  },
+  // ── 환율 (CNBC 시세) — 제목은 "국가 통화 (통화/달러)" ──
+  fxChart("usdkrw", "한국 원 (원/달러)", "원", 1),
+  fxChart("usdjpy", "일본 엔 (엔/달러)", "엔", 2),
+  fxChart("dxy", "달러인덱스 (DXY)", "", 2),
+  fxChart("eurusd", "유로 (달러/유로)", "달러", 4),
+  fxChart("usdcny", "중국 위안 (위안/달러)", "위안", 4),
+  fxChart("usdvnd", "베트남 동 (동/달러)", "동", 0),
+  fxChart("usdinr", "인도 루피 (루피/달러)", "루피", 2),
+  fxChart("usdidr", "인도네시아 루피아 (루피아/달러)", "루피아", 0),
+  fxChart("usdmyr", "말레이시아 링깃 (링깃/달러)", "링깃", 3),
+  fxChart("usdtry", "튀르키예 리라 (리라/달러)", "리라", 2),
+  fxChart("usdbrl", "브라질 헤알 (헤알/달러)", "헤알", 3),
+  fxChart("usdrub", "러시아 루블 (루블/달러)", "루블", 2),
 ];
 
 export const TABS: Array<{ id: TabId; label: string }> = [
@@ -228,6 +283,7 @@ export const TABS: Array<{ id: TabId; label: string }> = [
   { id: "rates", label: "1. 금리" },
   { id: "fx", label: "2. 환율" },
   { id: "weekly", label: "3. 주간 모니터링" },
+  { id: "consumption", label: "4. 국내 소비동향" },
 ];
 
 /** 화면에 실제로 쓰이는 계열만 조회한다. */

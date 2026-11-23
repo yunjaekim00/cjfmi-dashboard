@@ -43,6 +43,8 @@ export type EcosQuery = {
   cycle: "D" | "M" | "Q" | "A";
   /** 통계항목코드1 (예: 원/미국달러 매매기준율 = 0000001) */
   itemCode1: string;
+  /** 통계항목코드2 — 판매액지수의 경상/불변 구분처럼 둘째 차원이 있는 표만. 없으면 URL 에서 뺀다 */
+  itemCode2?: string;
   /** 검색 시작 (주기에 맞춘 포맷: D=YYYYMMDD, M=YYYYMM ...) */
   start: string;
   /** 검색 종료 */
@@ -164,6 +166,7 @@ function buildUrl(apiKey: string, query: EcosQuery, from: number, to: number): s
     ECOS_BASE, encodeURIComponent(apiKey), "json", "kr",
     String(from), String(to),
     query.statCode, query.cycle, query.start, query.end, query.itemCode1,
+    ...(query.itemCode2 ? [query.itemCode2] : []),
   ].join("/");
 }
 
@@ -247,7 +250,7 @@ async function loadWindow(
  */
 async function fetchWindow(apiKey: string, query: EcosQuery, window: Window): Promise<Point[]> {
   const scoped: EcosQuery = { ...query, start: window.start, end: window.end };
-  const key = `${scoped.statCode}/${scoped.cycle}/${scoped.itemCode1}/${scoped.start}/${scoped.end}`;
+  const key = `${scoped.statCode}/${scoped.cycle}/${scoped.itemCode1}${scoped.itemCode2 ? `/${scoped.itemCode2}` : ""}/${scoped.start}/${scoped.end}`;
 
   const cached = memo.get(key);
   if (cached && cached.expiresAt > Date.now()) {

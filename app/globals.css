@@ -103,14 +103,14 @@ button {
 
 /*
  * 헤드라인 "- [주간이슈] …"
- * Word: 왼쪽 884twip(44.2pt) · 내어쓰기 924twip(46.2pt) · 탭 168twip(8.4pt)
- *  → 첫 줄의 "-" 는 -2pt 에서, 본문은 8.4pt 에서 시작하고 둘째 줄부터 44.2pt 로 맞춘다.
+ * 첫 줄의 "-" 는 -2pt 에서, 본문("[주간이슈]")은 8.4pt 에서 시작한다. 둘째 줄부터는 본문 첫 글자(8.4pt)에 맞춘다 —
+ * 참고 보고서(Word 내어쓰기 46.2pt)는 라벨 뒤까지 들어갔지만 너무 깊다는 지적에 따라 첫 글자 정렬로 바꿨다(사용자 지시, 2026-11-16).
  */
 .wk-headline {
   margin: 0;
   font-size: calc(var(--wk-pt) * 14);
-  padding-left: calc(var(--wk-pt) * 44.2);
-  text-indent: calc(var(--wk-pt) * -46.2);
+  padding-left: calc(var(--wk-pt) * 8.4);
+  text-indent: calc(var(--wk-pt) * -10.4);
 }
 
 /* [시장반응] 앞 간격 (Word: 단락 앞 300twip = 15pt) */
@@ -126,14 +126,13 @@ button {
 
 /*
  * 불릿 "· 코어위브…"
- * Word: 왼쪽 1008twip(50.4pt) · 내어쓰기 840twip(42pt) · 탭 294twip(14.7pt)
- *  → 마커는 8.4pt, 본문은 14.7pt 에서 시작하고 둘째 줄부터 50.4pt.
+ * 마커는 8.4pt, 본문은 14.7pt 에서 시작한다. 둘째 줄부터는 본문 첫 글자(14.7pt)에 맞춘다 (헤드라인과 같은 이유).
  */
 .wk-bullet {
   margin: calc(var(--wk-pt) * 4) 0 0;
   font-size: calc(var(--wk-pt) * 13);
-  padding-left: calc(var(--wk-pt) * 50.4);
-  text-indent: calc(var(--wk-pt) * -42);
+  padding-left: calc(var(--wk-pt) * 14.7);
+  text-indent: calc(var(--wk-pt) * -6.3);
 }
 
 /* Word 의 Wingdings 작은 사각 불릿(U+F0A0)을 글꼴에 기대지 않고 직접 그린다 */

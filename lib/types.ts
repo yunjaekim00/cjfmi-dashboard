@@ -34,10 +34,20 @@ export type DashboardData = {
 export type ChangeStyle =
   /** 금리: "−1bp" */
   | "bp"
-  /** 정책금리: "+0.25%p(전월대비)" */
+  /** 정책금리: "+0.25%p" */
   | "pp"
   /** 환율·지수: "−3.0 (−0.22%)" */
   | "pct";
+
+/** 어느 한 비교 시점 대비 변화. */
+export type Delta = {
+  /** 비교한 관측치의 날짜 */
+  baseDate: string;
+  /** 변화량 (원계열 단위) */
+  change: number;
+  /** 변화율 (%) */
+  changePct: number;
+};
 
 /** 요약 카드 한 장에 필요한 값. */
 export type IndicatorSummary = {
@@ -45,10 +55,15 @@ export type IndicatorSummary = {
   label: string;
   unit: string;
   value: number;
-  /** 직전 관측치 대비 변화량 (원계열 단위) */
-  change: number;
-  /** 직전 관측치 대비 변화율 (%) */
-  changePct: number;
+  /** 전일대비 — 직전 관측치(직전 영업일) 대비. 관측치가 하나뿐이면 null */
+  day: Delta | null;
+  /** 전월대비 — 한 달 전(그 날 이전 마지막 관측치) 대비. 그만큼 자료가 없으면 null */
+  month: Delta | null;
+  /**
+   * 대표 변화량 — 스파크라인 색을 정한다. 보통 전일대비이고, 정책금리처럼 값이 며칠씩
+   * 그대로인 계열은 전월대비(lib/catalog.ts 의 compareMonthsBack).
+   */
+  trend: number;
   /** 최신 관측일 */
   asOf: string;
   /** 관측 주기 — 날짜 표기를 "2026.8.25" 로 할지 "2026.7월" 로 할지 결정 */

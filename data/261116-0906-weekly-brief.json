@@ -1,0 +1,248 @@
+{
+  "weekStart": "2026-11-10",
+  "weekEnd": "2026-11-16",
+  "generatedAt": "2026-11-16T00:06:23Z",
+  "model": "claude-code",
+  "issue": {
+    "headline": "美 10월 CPI 상회·연준 인사 긴축 발언에 12월 기준금리 인상 기정사실화, 엔비디아 젠슨 황 CEO 전격 사임에 AI 투자 불안 재점화",
+    "points": [
+      "CPI 전월比 0.4%·근원 0.3% 예상 상회, 월러 이사 '0.5%p 인상도 검토' 등 긴축 발언",
+      "황 CEO, 中 스파이 의혹 인사와 불륜 인정 뒤 12일 사임(CFO 크레스 임시 CEO)"
+    ]
+  },
+  "reaction": {
+    "headline": "연준 12월 기준금리 인상 확실시에 美 금리 {{↑}}·달러 {{↑}}, 엔비디아 CEO 사임에 美 주가 상승 제한, 韓은 외국인 복귀에 주가 {{↑}}·환율 {{↓}}",
+    "items": [
+      {
+        "category": "원자재",
+        "text": "{{WTI}}는 트럼프 '이란 합의 불필요' 발언·호르무즈 유조선 피격에 10일 저점에서 {{반등}}, 주간으로는 {{하락}}"
+      },
+      {
+        "category": "금리",
+        "text": "{{美}} 10년물은 인플레 재가속·연준 인사 긴축 발언에 {{급등}}(주간 상승폭 18개월來 최대), {{韓}} 3년물도 {{동반 상승}}"
+      },
+      {
+        "category": "주가",
+        "text": "{{S&P500}}은 엔비디아 CEO 사임·금리 급등에 반등 무산, 주간 {{보합}}, {{KOSPI}}는 외국인 복귀에 {{급등}}"
+      },
+      {
+        "category": "외환",
+        "text": "{{원달러}}는 외국인 순매수·수출업체 네고에 12일까지 하락 후 달러 강세에 13일 {{반등}}, 주간으로는 {{하락}}"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "title": "[11.11] 미국 10월 소비자물가, 예상치 상회. 연준 월러 이사는 0.50%p 인상도 고려 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37701&mn=001002",
+      "date": "2026-11-11"
+    },
+    {
+      "title": "Consumer prices rose 0.4% in October, more than expected, complicating Fed's inflation fight",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/10/cpi-inflation-report-october-2026.html",
+      "date": "2026-11-10"
+    },
+    {
+      "title": "[11.16] 미국 Nvidia 실적과 Anthropic 상장. 향후 AI 투자 가늠할 시험대로 작용할 전망 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37712&mn=001002",
+      "date": "2026-11-16"
+    },
+    {
+      "title": "[11.14] 미 10월 PPI, 예상치 하회했으나 상승세는 유지. 연준 인사들은 추가 긴축 시사",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37710&mn=001002",
+      "date": "2026-11-14"
+    },
+    {
+      "title": "[11.13] 미국 트럼프, 이란과의 합의 불필요. Nvidia의 젠슨 황 CEO는 사임 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37706&mn=001002",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "[11.12] 미국 증시, AI 우려 완화. 주요 관련 기업은 양호한 실적 및 투자 수요 확인 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37704&mn=001002",
+      "date": "2026-11-12"
+    },
+    {
+      "title": "주간 이슈(11.16) : 엔비디아 조사, 앤트로픽 IPO, APEC 회의, 중국 경제지표에 주목",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37711&mn=001003",
+      "date": "2026-11-16"
+    },
+    {
+      "title": "Bond Investors Expect More Pain After Week of Soaring Yields",
+      "publisher": "Bloomberg",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-13/treasury-yield-surge-shatters-hopes-worst-of-bond-rout-is-over",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "S&P 500 Falls as Chip Slump Offsets Inflation Data: Markets Wrap",
+      "publisher": "swissinfo(Bloomberg)",
+      "url": "https://www.swissinfo.ch/eng/s%26p-500-falls-as-chip-slump-offsets-inflation-data%3a-markets-wrap/92374084",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "Oil prices set for second weekly decline as Trump to stay with Iran blockade",
+      "publisher": "Investing.com(Reuters)",
+      "url": "https://www.investing.com/news/commodities-news/oil-prices-set-for-second-weekly-decline-as-trump-to-stay-with-iran-blockade-5024008",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "Stocks recover from Nvidia whiplash, dollar climbs with US yields",
+      "publisher": "Investing.com(Reuters)",
+      "url": "https://www.investing.com/news/economy-news/stocks-recover-from-nvidia-whiplash-dollar-climbs-with-us-yields-5023929",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "10-year Treasury yield jumps back above 5% as oil gains and more Fed rate hikes expected",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/12/us-treasurys-bonds-yields.html",
+      "date": "2026-11-12"
+    },
+    {
+      "title": "Stock market news for Nov. 13, 2026: Live updates",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/12/stock-market-today-live-updates.html",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "Nvidia stock closes down over 4% after CEO Jensen Huang announces resignation",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/12/nvidia-nvda-jensen-huang-second-affair.html",
+      "date": "2026-11-12"
+    },
+    {
+      "title": "원·달러 환율, 5거래일 만에 반등…1336.7원 마감 [김혜란의 FX]",
+      "publisher": "서울경제",
+      "url": "https://m.sedaily.com/article/20114156",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "美 긴축 우려에도 환율 2.9원↓…1330.7원 마감(종합)",
+      "publisher": "뉴스1",
+      "url": "https://www.news1.kr/finance/market-exr/6352275",
+      "date": "2026-11-12"
+    },
+    {
+      "title": "오전엔 순매수 오후엔 순매도…종잡을 수 없는 외국인 투심",
+      "publisher": "한국경제",
+      "url": "https://www.hankyung.com/article/202611135322i",
+      "date": "2026-11-13"
+    },
+    {
+      "title": "[마감 시황] 미 인플레이션 충격과 기술주 약세 딛고 코스피 5,370선 회복…외국인 '사자'에 반도체 쌍두마차 급등",
+      "publisher": "비즈니스코리아",
+      "url": "https://www.businesskorea.co.kr/news/articleView.html?idxno=281048",
+      "date": "2026-11-11"
+    },
+    {
+      "title": "국고채 금리 일제히 상승…3년물 연 3.759%",
+      "publisher": "서플(연합뉴스)",
+      "url": "https://supple.kr/news/cmwern8aycqihal9p5upvn76g",
+      "date": null
+    }
+  ],
+  "indicators": [
+    {
+      "id": "sp500",
+      "label": "S&P 500",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 7561.67,
+        "time": "2026-11-13T21:00:00.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 7549.94
+      }
+    },
+    {
+      "id": "ust10",
+      "label": "美 10년물",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 5.153,
+        "time": "2026-11-15T23:48:01.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 4.88
+      }
+    },
+    {
+      "id": "kospi",
+      "label": "KOSPI",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 5290.53,
+        "time": "2026-11-15T23:58:55.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 5018.85
+      }
+    },
+    {
+      "id": "ktb3",
+      "label": "국고채 3년",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 3.756,
+        "time": "2026-11-13T07:13:58.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 3.639
+      }
+    },
+    {
+      "id": "usdkrw",
+      "label": "원/달러",
+      "unit": "원",
+      "digits": 1,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 1335.6,
+        "time": "2026-11-15T23:58:00.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 1357.9
+      }
+    },
+    {
+      "id": "wti",
+      "label": "WTI",
+      "unit": "$",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-16",
+        "value": 88.53,
+        "time": "2026-11-15T23:48:37.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-09",
+        "value": 90.4
+      }
+    }
+  ]
+}

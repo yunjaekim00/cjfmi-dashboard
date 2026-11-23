@@ -91,10 +91,7 @@ function MarketChartSvg({ spec, chart, market, first, baseline }: ChartProps) {
   if (latest && daysBetween(latest.date, asOf) > STALE_DAYS) {
     changeText = `${changeText ? `${changeText}, ` : ""}${formatTickDate(latest.date)}`;
   }
-  // 종가 기준인데 그날 거래가 없어(휴장·출처 지연) 직전 거래일 종가를 썼으면 그 날짜를 밝힌다
-  if (baseline?.kind === "close" && weekAgo && weekAgo.date !== kstDateOf(baseline.at)) {
-    changeText = `${changeText ? `${changeText}, ` : ""}${formatTickDate(weekAgo.date)} 종가比`;
-  }
+  // 종가 기준에서 직전 거래일 종가로 대체한 경우는 차트에 적지 않는다 — 오른쪽 "전주比 기준" 패널이 밝힌다
 
   return (
     <svg className="mk-chart" viewBox={`0 0 ${VW} ${VH}`} role="img" aria-label={`${spec.title} 최근 1년 추이`}>

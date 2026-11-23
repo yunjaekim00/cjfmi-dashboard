@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useSyncExternalStore } from "react";
 
+import { ConsumptionPanel } from "@/components/ConsumptionPanel";
 import { IndicatorCard } from "@/components/IndicatorCard";
 import { LiveStatus } from "@/components/LiveStatus";
 import { SeriesChart } from "@/components/SeriesChart";
@@ -9,6 +10,7 @@ import { StatusNotice } from "@/components/StatusNotice";
 import { WeeklyMonitor } from "@/components/WeeklyMonitor";
 import { CHARTS, TABS, type TabId } from "@/lib/catalog";
 import { buildSummaries } from "@/lib/summary";
+import { useConsumption } from "@/lib/useConsumption";
 import { useLiveDashboard } from "@/lib/useLiveDashboard";
 import { useWeeklyBrief } from "@/lib/useWeeklyBrief";
 import type { DashboardData } from "@/lib/types";
@@ -29,6 +31,8 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
   const { data, checkedAt, refreshing, error, refresh } = useLiveDashboard(initial);
   // 주간 모니터링은 탭을 처음 열 때 받아오고, 그 뒤로는 탭을 오가도 들고 있는다.
   const weekly = useWeeklyBrief(tab === "weekly");
+  // 국내 소비동향도 탭을 처음 열 때 받아오고, 그 뒤로는 들고 있는다.
+  const consumption = useConsumption(tab === "consumption");
 
   const indicators = useMemo(() => buildSummaries(data.series), [data.series]);
 
@@ -86,6 +90,10 @@ export function Dashboard({ initial }: { initial: DashboardData }) {
 
         {tab === "weekly" ? (
           <WeeklyMonitor state={weekly.state} onRegenerate={weekly.regenerate} />
+        ) : null}
+
+        {tab === "consumption" ? (
+          <ConsumptionPanel state={consumption.state} onReload={consumption.reload} />
         ) : null}
 
         {charts.length ? (
