@@ -109,11 +109,27 @@ const POLICY_MOVE = /(금리 ?인상|금리 ?인하|\d+월 인상|\d+월 인하|
 /** 화면 한 줄에 들어가는지 어림한다 — 한글·한자·전각은 1em, 공백 0.3em, 나머지(숫자·영문·기호) 0.55em. 상자 920px·13pt 면 약 42em. */
 const emWidth = (text) =>
   [...strip(text)].reduce((sum, ch) => sum + (/[\u1100-\u11FF\u3000-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]/.test(ch) ? 1 : ch === " " ? 0.3 : 0.55), 0);
-const POINT_MAX_EM = 42;
-brief.issue.points.forEach((text, i) => {
+// 모든 문장은 화면 두 줄 분량 (사용자 지시, 2026-11-23) — 한 줄(42em)에 그치거나 두 줄(84em)을 넘으면 경고
+// 예외: [시장반응] headline 은 반드시 한 줄 (사용자 지시, 2026-11-23)
+const LINE_EM = 42;
+for (const [where, text] of lines) {
   const em = emWidth(text);
-  if (em > POINT_MAX_EM) warnings.push(`issue.points[${i}]: 한 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${POINT_MAX_EM}em) — 주간이슈 상세는 한 줄 안에`);
-});
+  if (where === "reaction.headline") {
+    if (em > LINE_EM) warnings.push(`${where}: 한 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${LINE_EM}em) — [시장반응] 문장은 반드시 한 줄`);
+  } else if (em <= LINE_EM + 8) warnings.push(`${where}: 한 줄 분량입니다 (폭 ${em.toFixed(0)}em) — 날짜·주체·수치·경과를 넣어 두 줄 분량(50~84em)으로`);
+  else if (em > LINE_EM * 2) warnings.push(`${where}: 두 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${LINE_EM * 2}em)`);
+}
+// 한 문장 안에서 같은 낱말을 되풀이하지 않는다 (사용자 지시, 2026-11-23) — 끝의 조사를 떼고 두 글자 이상 한글 낱말을 센다
+const PARTICLE = /(에서는|에서도|에서|에는|에도|으로|까지|부터|은|는|이|가|을|를|의|에|도|와|과|로)$/;
+for (const [where, text] of lines) {
+  const counts = new Map();
+  for (const token of strip(text).match(/[가-힣]{2,}/g) ?? []) {
+    const stem = token.length > 2 ? token.replace(PARTICLE, "") : token;
+    if (stem.length >= 2) counts.set(stem, (counts.get(stem) ?? 0) + 1);
+  }
+  const repeated = [...counts].filter(([, n]) => n > 1).map(([w]) => w);
+  if (repeated.length) warnings.push(`${where}: 같은 낱말 반복 — ${repeated.join(", ")}. 한 문장 안에서는 다른 말로 바꿔 씁니다`);
+}
 // 시장반응의 주간 변동폭(몇 %, 몇 bp, 몇 원)은 차트·표가 보여주므로 적지 않는다 (사용자 지시, 2026-11-16)
 const WEEKLY_CHANGE = /(주간|전주)\s*(比|대비)?\s*[+−-]?\d|[(,]\s*[+−-]\d+(\.\d+)?\s*(bp|%p?|원|달러)/;
 // 시장반응은 지표 수치(종가·금리 수준) 없이 변동 현황과 배경·이유만 — 차트·표와 중복 (사용자 지시, 2026-11-17)
@@ -158,7 +174,6 @@ for (const [where, text] of lines) {
   }
   if ((text.match(/\{\{/g) ?? []).length !== (text.match(/\}\}/g) ?? []).length) problems.push(`${where}: {{ }} 짝이 맞지 않습니다`);
   if (/\n/.test(text)) problems.push(`${where}: 줄바꿈이 들어 있습니다`);
-  if (strip(text).length > 80) warnings.push(`${where}: ${strip(text).length}자 — 70자 안팎을 권장합니다`);
 }
 if (/\{\{/.test(brief.issue.headline + brief.issue.points.join(""))) warnings.push("주간이슈에는 {{강조}}를 쓰지 않습니다 (라벨만 파랗게)");
 // 주간이슈는 이슈만 — 지표의 수준·변동은 [시장반응]이 쓴다 (사용자 지시, 2026-11-16)
