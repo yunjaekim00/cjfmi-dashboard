@@ -35,6 +35,8 @@ const TIMEOUT_MS = 20_000;
 const TTL_MS = 6 * 60 * 60 * 1000;
 /** 빈 응답·오류 뒤 다시 묻기까지 */
 const FAIL_BACKOFF_MS = 10 * 60 * 1000;
+/** 새로고침(?refresh=1)을 받아들이는 최소 간격 — 마지막 조회 뒤 1분 안의 새로고침은 무시하고 받아 둔 자료를 준다 */
+const MIN_REFRESH_GAP_MS = 60 * 1000;
 /** 요청 사이 간격 */
 const GAP_MS = 300;
 class EmptyResponseError extends Error {
@@ -51,6 +53,8 @@ type PartMemo = {
   part: Part | null;
   expiresAt: number;
   failedAt: number;
+  /** 마지막으로 출처에 물은 시각(성공·실패 무관). 개발 중 HMR 로 남은 옛 슬롯에는 없을 수 있다 */
+  attemptedAt?: number;
   failure: string | null;
   inflight: Promise<PartResult> | null;
   /** 받을 때의 계열 구성(id 목록). 항목을 추가·삭제해 구성이 달라지면 TTL 이 남았어도 다시 받는다 */
@@ -247,11 +251,14 @@ const LOADERS: Record<PartKind, () => Promise<Part>> = { weekly: loadWeekly, mon
 
 /**
  * 한 부분(주간 또는 월간)을 캐시에서 주거나 새로 받는다. 6시간 캐시, 동시 요청은 하나로 합친다.
+ * force(새로고침)는 캐시를 무시하지만, 마지막 조회 뒤 1분 안이면 무시된다.
  * 실패하면 받아 둔 것이 있을 때 그것을 stale 사유와 함께 주고, 없으면 throw. 실패 뒤 10분은 다시 묻지 않는다.
  */
-async function getPart(kind: PartKind, force: boolean): Promise<PartResult> {
+async function getPart(kind: PartKind, forceRequested: boolean): Promise<PartResult> {
   const slot = memo[kind];
   const now = Date.now();
+  // 1분 안에 다시 온 새로고침은 무시한다 — 연타해도 출처에 다시 묻지 않고 평소 캐시 경로를 탄다
+  const force = forceRequested && now - (slot.attemptedAt ?? 0) >= MIN_REFRESH_GAP_MS;
   const configKey = expectedIds(kind).join(",");
   if (!force && slot.part && slot.expiresAt > now && slot.configKey === configKey) return { part: slot.part, stale: null };
   if (slot.inflight) return slot.inflight;
@@ -261,6 +268,7 @@ async function getPart(kind: PartKind, force: boolean): Promise<PartResult> {
     throw new Error(slot.failure ?? `${LABEL[kind]} 조회에 실패해 잠시 쉬는 중입니다.`);
   }
 
+  slot.attemptedAt = now;
   slot.inflight = (async (): Promise<PartResult> => {
     try {
       const part = await LOADERS[kind]();

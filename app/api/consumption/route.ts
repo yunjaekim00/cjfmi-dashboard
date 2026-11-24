@@ -5,7 +5,7 @@ import { getConsumptionData } from "@/lib/consumption";
 /**
  * 국내 소비동향(주간 나우캐스트 · 월간 ECOS) 자료 — 탭을 열 때 한 번 받는다.
  * GET            캐시(6시간)된 자료. 없으면 새로 받아 온다 (주간 계열 16개를 순차로 받느라 10초 안팎, 월간은 병렬이라 금방).
- * GET ?refresh=1 캐시를 무시하고 새로 받는다.
+ * GET ?refresh=1 캐시를 무시하고 새로 받는다. 단, 마지막 조회 뒤 1분 안이면 무시하고 받아 둔 자료를 준다.
  */
 export const maxDuration = 60;
 

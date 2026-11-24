@@ -88,6 +88,8 @@ export type WeeklyMarket = {
   snapshots?: MarketSnapshot[];
   /** 차트에 없는 계열(국고채 3년 · 환율표의 달러인덱스·유로·엔·위안·동)의 최근 일별 값 — "종가 기준" 비교에 쓴다 (서버가 붙인다) */
   recentCloses?: Record<string, MarketPoint[]>;
+  /** 직전 보고일(YYYY-MM-DD) — 사용자가 따로 지정했을 때만 있다. 없으면 기준일 7일 전으로 본다 */
+  previousReport?: string | null;
   /** 적용한 비교 기준(엑셀). 화면은 브라우저에서 같은 계산을 한다 */
   compareBase?: { prefix: string; at: string; label: string } | null;
 };
@@ -238,10 +240,29 @@ export function formatSnapshotLabel(iso: string): string {
 }
 
 /** 기본 비교 기준 — 기준일(오늘)보다 앞선 날의 가장 최근 스냅샷. 오늘 만든 파일(이번 보고·테스트)은 빼기 위해서다. */
-export function defaultSnapshot(snapshots: MarketSnapshot[], asOf: string): MarketSnapshot | null {
-  let found: MarketSnapshot | null = null;
-  for (const snapshot of snapshots) if (kstDateOf(snapshot.at) < asOf) found = snapshot;
-  return found;
+/** 직전 보고일 — 따로 지정이 없으면 기준일 7일 전 (사용자 지시, 2026-11-24: 보고는 대개 일주일 간격, 아닐 때만 날짜를 지정한다) */
+export function previousReportDate(asOf: string, previousReport?: string | null): string {
+  return previousReport && previousReport < asOf ? previousReport : shiftDays(asOf, -7);
+}
+
+/**
+ * 전주比의 기본 비교 기준 — 직전 보고일의 값.
+ * ① 그날 쓴 보고 스냅샷(그날의 마지막 것) ② 없으면 그날 종가 ③ 그것도 없으면 그날 이전의 가장 최근 보고 ④ 기준일보다 앞선 가장 최근 보고.
+ * snapshots 는 보고 스냅샷과 종가 기준(buildCloseSnapshots)을 함께 준다 (시각 오름차순).
+ */
+export function defaultSnapshot(snapshots: MarketSnapshot[], asOf: string, previousReport?: string | null): MarketSnapshot | null {
+  const target = previousReportDate(asOf, previousReport);
+  const reports = snapshots.filter((snapshot) => snapshot.kind !== "close");
+  let onDay: MarketSnapshot | null = null;
+  let before: MarketSnapshot | null = null;
+  let any: MarketSnapshot | null = null;
+  for (const snapshot of reports) {
+    const date = kstDateOf(snapshot.at);
+    if (date === target) onDay = snapshot;
+    if (date <= target) before = snapshot;
+    if (date < asOf) any = snapshot;
+  }
+  return onDay ?? snapshots.find((snapshot) => snapshot.prefix === `close:${target}`) ?? before ?? any;
 }
 
 /** 스냅샷을 비교점(weekAgo 자리)으로 — 그 계열 값이 없으면 null. 종가 기준이면 실제로 쓴 종가의 날짜. */

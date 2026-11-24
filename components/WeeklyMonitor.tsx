@@ -305,13 +305,13 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
   // 서버 렌더 때는 요약문이 아직 없어 이 값에 기대는 표시가 없으므로 첫 렌더에서 주소를 읽어도 hydration 이 어긋나지 않는다.
   const [basePrefix, setBasePrefix] = useState<string | null>(readBaseParam);
   const market = brief?.market ?? null;
-  // 목록 = 보고 시점 스냅샷(저장 파일) + 최근 14일 종가 기준. 기본은 보고 시점 중 오늘보다 앞선 가장 최근 것.
+  // 목록 = 보고 시점 스냅샷(저장 파일) + 최근 14일 종가 기준. 기본은 직전 보고일(따로 지정이 없으면 일주일 전)의 값.
   const snapshots = useMemo(
     () => (market ? [...(market.snapshots ?? []), ...buildCloseSnapshots(market)] : []),
     [market]
   );
   const defaultBase = useMemo(
-    () => (market ? defaultSnapshot(snapshots.filter((s) => s.kind !== "close"), market.asOf) : null),
+    () => (market ? defaultSnapshot(snapshots, market.asOf, market.previousReport) : null),
     [market, snapshots]
   );
   const baseline = useMemo(
@@ -331,6 +331,12 @@ export function WeeklyMonitor({ state, onRegenerate }: Props) {
         <>
           <Meta brief={brief} refreshing={refreshing} onRegenerate={onRegenerate} />
           <BriefBox brief={brief} />
+          {/* 차주 전망 — 보고서 양식처럼 요약 상자와 차트 사이에 화살표로 */}
+          {brief.outlook ? (
+            <p className="wk-headline px-2">
+              <span aria-hidden>⇨</span> <Inline text={brief.outlook} />
+            </p>
+          ) : null}
           <Footnotes brief={brief} baseline={baseline} />
           {/* 상자와 같은 너비로 차트 6개와 환율표 — 자료 파일은 /weekly 가 만든다. 오른쪽 빈 칸에 전주比 기준 패널 */}
           <div className="pt-3">

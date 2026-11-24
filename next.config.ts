@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/weekly": ["./data/**/*"],
     "/api/weekly/xlsx": ["./data/**/*"],
+    // 워드 보고서는 양식 파일도 fs 로 읽는다
+    "/api/weekly/docx": ["./data/**/*", "./documents/weekly-report-template.docx"],
   },
 };
 

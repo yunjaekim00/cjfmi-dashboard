@@ -13,6 +13,7 @@
  *   node scripts/weekly-market.mjs --offline                     # 받지 않고 캐시만으로 다시 만든다 (실시간 시세도 안 받는다)
  *   node scripts/weekly-market.mjs --no-live                     # 실시간 시세 없이 집계치(FRED·ECOS)만으로
  *   node scripts/weekly-market.mjs --baseline 2026-02-27         # 환율표 비교 시점 (기본: 전쟁직전 2/27)
+ *   node scripts/weekly-market.mjs --previous 2026-11-18         # 직전 보고일 (기본: 기준일 7일 전) — 전주比의 비교 기준
  *   node scripts/weekly-market.mjs --out /tmp/x.json             # 쓸 파일 경로 지정 (기본 data/<YYMMDD>-weekly-market.json)
  *
  * 자료는 data/market-history.json 에 쌓아 둔다(14개월 + 비교 시점). 실행할 때마다 계열별 마지막 관측일의
@@ -139,7 +140,7 @@ function previousSnapshot(asOf) {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseArgs(argv) {
-  const args = { asOf: null, sets: [], offline: false, baseline: null, noLive: false, out: null };
+  const args = { asOf: null, sets: [], offline: false, baseline: null, noLive: false, out: null, previous: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--as-of") args.asOf = argv[++i];
@@ -149,10 +150,12 @@ function parseArgs(argv) {
     else if (arg === "--no-live") args.noLive = true;
     else if (arg === "--out") args.out = argv[++i];
     else if (arg === "--baseline") args.baseline = argv[++i];
+    else if (arg === "--previous") args.previous = argv[++i];
     else if (DATE_RE.test(arg)) args.asOf = arg;
     else throw new Error(`알 수 없는 인자: ${arg}`);
   }
   if (args.asOf && !DATE_RE.test(args.asOf)) throw new Error(`--as-of 는 YYYY-MM-DD 여야 합니다: ${args.asOf}`);
+  if (args.previous && !DATE_RE.test(args.previous)) throw new Error(`--previous 는 YYYY-MM-DD 여야 합니다: ${args.previous}`);
   if (args.baseline && !DATE_RE.test(args.baseline)) throw new Error(`--baseline 은 YYYY-MM-DD 여야 합니다: ${args.baseline}`);
 
   const overrides = args.sets.map((text) => {
@@ -173,6 +176,7 @@ function parseArgs(argv) {
     noLive: args.noLive,
     out: args.out,
     baseline: args.baseline ?? FX_BASELINE.date,
+    previous: args.previous,
   };
 }
 
@@ -358,7 +362,7 @@ function daysBetween(a, b) {
 // ───────────────────────── main ─────────────────────────
 
 async function main() {
-  const { asOf, overrides, offline, noLive, out, baseline } = parseArgs(process.argv.slice(2));
+  const { asOf, overrides, offline, noLive, out, baseline, previous: previousArg } = parseArgs(process.argv.slice(2));
   const today = todayKst();
   const { windowStart, ticks } = marketWindow(asOf);
   // 비교 시점(전쟁직전)이 창 밖으로 밀려나도 남아 있도록 보존 구간을 그만큼 넓힌다.
@@ -426,7 +430,9 @@ async function main() {
 
   // ── 차트 ──
   const warnings = [];
-  const previous = previousSnapshot(asOf);
+  // 직전 보고일 — 따로 지정(--previous)이 없으면 기준일 7일 전. 그날(없으면 그 이전 가장 최근)의 보고 스냅샷이 "지난 보고比"의 기준이다.
+  const previousDate = previousArg && previousArg < asOf ? previousArg : shiftDays(asOf, -7);
+  const previous = previousSnapshot(shiftDays(previousDate, 1)) ?? previousSnapshot(asOf);
   const chartRows = ["| 차트 | 최근 | 지난주 | 전주비(7일) | 지난 보고比 | 출처 |", "|---|---|---|---|---|---|"];
   const charts = CHART_SPECS.map((spec) => {
     const entry = entryFor(cache, spec.id);
@@ -510,6 +516,7 @@ async function main() {
     windowStart,
     generatedAt: new Date().toISOString(),
     liveAt: live.fetchedAt,
+    ...(previousArg ? { previousReport: previousDate } : {}),
     event: MARKET_EVENT,
     charts,
     fx: { baselineDate: baseline, baselineLabel: FX_BASELINE.label, items },
@@ -534,7 +541,8 @@ async function main() {
   console.error(`\n환율표 — ${FX_BASELINE.label}(${fmtDate(baseline)})比`);
   console.error(fxRows.join("\n"));
   if (warnings.length) console.error(`\n${warnings.map((w) => `⚠ ${w}`).join("\n")}`);
-  if (previous) console.error(`\n지난 보고 스냅샷: ${previous.prefix} (${fmtTime(previous.at)} KST) — 화면 "전주比 기준"의 기본값. 표의 "지난 보고比"가 그 대비.`);
+  console.error(`\n직전 보고일: ${previousDate}${previousArg ? " (지정)" : " (기본: 일주일 전 — 다르면 --previous YYYY-MM-DD)"}`);
+  if (previous) console.error(`지난 보고 스냅샷: ${previous.prefix} (${fmtTime(previous.at)} KST) — 표의 "지난 보고比"가 그 대비. 화면은 직전 보고일에 쓴 보고가 없으면 그날 종가를 쓴다.`);
   console.error(`\n→ ${outFile} 저장 · 캐시 ${CACHE_FILE} 갱신 · 접두사 ${stamp}`);
   console.log(outFile);
 }

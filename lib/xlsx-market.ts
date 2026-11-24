@@ -4,7 +4,6 @@ import {
   CHART_SPECS,
   FX_SPECS,
   annotationBelow,
-  dateFraction,
   formatKstTime,
   formatSignedPct,
   formatTickDate,
@@ -25,22 +24,15 @@ import {
  *   시트 1 "주요국 금융시장 동향": 제목, 차트 6개(3×2), 환율표, 각주
  *   시트 2 "데이터": 차트마다 날짜·값 두 열 (1년치)
  *
- * 차트 서식은 사용자가 쓰는 엑셀 파일의 차트를 기준으로 맞췄다 (2026-11-02 전달받은 화면):
- *   테두리 없음 · 제목은 차트 왼쪽 위에 굵게 13pt · 단위 표기는 그 아래 회색 9pt · 눈금 글자 회색 10pt
- *   최근치 파랑 굵게 14pt + 전주비 파랑 굵게 9pt 를 오른쪽 끝에 · 사건 띠는 폭 6pt, 플롯 안에서 선 뒤에
- * 사건 띠는 첫 번째 계열(굵은 연파랑 세로선)이다 — 도형(userShapes)은 늘 맨 위에 그려져 지표 선을 가리기 때문.
- * 차트는 엑셀 네이티브 분산형(직선) 차트다. 선형 차트는 모든 계열이 같은 날짜 축을 공유하는데
- * 계열마다 거래일이 달라서, 날짜를 x 값으로 갖는 분산형을 쓴다. 보고서의 생김새는 계열 세 개로 만든다:
- *   ① 공습 표시 띠(연파랑 굵은 세로선) ② 지표 선 ③ x 눈금 라벨(투명한 점 + 데이터 레이블)
- * 최근치·전주비와 사건 라벨은 차트 위에 얹은 텍스트 상자(userShapes)다 — 데이터 레이블은 Excel 이
- * 사용자 지정 글을 좁은 기본 상자 안에서 줄바꿈해 버려서(크기 지정도 무시) 긴 글에는 쓸 수 없었다.
+ * 차트 서식은 보고서(워드 "[미경연] 금융시장 모니터링")에 들어 있는 차트 6개의 정의를 그대로 옮겼다 (2026-11-24):
+ *   꺾은선형 + 날짜 축 · 선 1pt 0070C0 · 제목·범례·눈금선 없음 · 배경·테두리 없음 · x축 선만 검정 0.75pt
+ *   축 눈금 CJ ONLYONE 300 8.8~9pt 회색(595959) · 최근치는 마지막 점의 데이터 레이블(값 10pt + 전주비 8pt, 굵게, 오른쪽 맞춤)
+ *   단위 표기 8pt 회색 텍스트 상자 · 사건 띠는 반투명 연파랑 직사각형 · 첫 차트에만 사건 라벨 7pt
+ * 그림 크기·플롯 위치는 차트마다 조금씩 달라 CHART_REF 에 차트별로 적어 두었다.
  */
 
 const FONT_300 = "CJ ONLYONE 300";
 const FONT_400 = "CJ ONLYONE 400";
-const BLUE = "3464B6";
-const BAND = "DFE5F1";
-const TICK = "4F4F4F";
 const NOTE = "757575";
 const BAR = "D4D4D4";
 const BAR_SOFT = "DADADA";
@@ -57,7 +49,7 @@ const NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
 const COLS = 21;
 const BLOCK = 7;
 const COL_WIDTH = 5.71; // ≈ 45px → 차트 한 칸 315px
-const CHART_ROWS = 11; // 11 × 15pt(20px) = 220px — 제목이 차트 안에 들어가므로 보고서 비율(1.8:1)보다 조금 높다
+const CHART_ROWS = 7; // 7 × 15pt(20px) = 140px — 차트 높이(보고서 차트 그대로 약 3.4cm ≈ 131~134px)가 들어간다
 const ROW_TITLE = 1;
 /** 차트 두 줄의 첫 행 (제목 바 없이 차트가 바로 시작한다 — 사용자 엑셀 디자인) */
 const ROW_CHART_1 = 2;
@@ -67,24 +59,6 @@ const ROW_NOTE = ROW_FX + 5; // 31 — 환율표 4행(머리·최근·전쟁직�
 
 const DATA_SHEET = "데이터";
 
-/** 차트 안 배치(차트 크기 대비 비율). 사용자 엑셀 차트를 잰 값 — 위에서부터 제목 · 단위 표기 · 플롯 · x 눈금 */
-const PLOT_X = 0.21;
-const PLOT_Y = 0.3;
-const PLOT_W = 0.7;
-const PLOT_H = 0.48;
-/** 단위 표기 "(원/달러)" 의 위치 */
-const UNIT_Y = 0.17;
-/** 사건 띠 굵기 (EMU, 6pt ≈ 차트 너비의 2.5%) — 계열 선이라 pt 로 준다 */
-const BAND_WIDTH_EMU = 76200;
-/** 사건 라벨을 띠 오른쪽에 둘 때의 간격 (차트 너비 대비) */
-const BAND_GAP = 0.025;
-
-/** 글자 크기 (1/100 pt) */
-const SZ_TITLE = 1300;
-const SZ_TICK = 1000;
-const SZ_NOTE = 900;
-const SZ_VALUE = 1400;
-const SZ_CHANGE = 900;
 
 // ───────────────────────── 작은 도구 ─────────────────────────
 
@@ -186,121 +160,190 @@ function stylesXml(): string {
 
 // ───────────────────────── 차트 XML ─────────────────────────
 
-type RunStyle = { sz: number; color: string; font?: string; bold?: boolean };
+/**
+ * 차트별 치수 — 보고서(워드)에 들어 있는 차트 6개를 잰 값 그대로 (CHART_SPECS 순서: S&P500 · KOSPI · 원달러 · 美 10년 · 韓 10년 · WTI).
+ *   cx·cy  그림 크기 (EMU)
+ *   plot   플롯 영역 (차트 크기 대비 비율: x, y, w, h)
+ *   tickSz 축 눈금 글자 크기 (1/100 pt)
+ *   unit   단위 표기 상자 (x0, y0, x1, y1)
+ *   bandY  사건 띠의 위·아래
+ *   label  최근치 데이터 레이블 상자의 크기 (w, h)
+ */
+type ChartRef = {
+  cx: number;
+  cy: number;
+  plot: [number, number, number, number];
+  tickSz: number;
+  unit: [number, number, number, number];
+  bandY: [number, number];
+  label: [number, number];
+};
+const CHART_REF: ChartRef[] = [
+  {
+    cx: 2291715,
+    cy: 1251585,
+    plot: [0.20713449515348259, 0.20682855079356691, 0.70004467364186396, 0.57661125692621751],
+    tickSz: 880,
+    unit: [0, 0.0273, 0.4227, 0.1864],
+    bandY: [0.116, 0.7818],
+    label: [0.43262661331598679, 0.30267348441200942],
+  },
+  {
+    cx: 2154555,
+    cy: 1219835,
+    plot: [0.24226846644169478, 0.22288649600270105, 0.67302716906318771, 0.55967651823001452],
+    tickSz: 880,
+    unit: [0.0203, 0, 0.4112, 0.1488],
+    bandY: [0.095, 0.7814],
+    label: [0.2973767468255657, 0.34708981174307524],
+  },
+  {
+    cx: 2154555,
+    cy: 1219835,
+    plot: [0.21891797658134063, 0.16789447308132874, 0.68986934751237272, 0.61258857241384967],
+    tickSz: 880,
+    unit: [0, 0, 0.39088, 0.14878],
+    bandY: [0.09914, 0.78832],
+    label: [0.29938633786848073, 0.30823739977090492],
+  },
+  {
+    cx: 2255520,
+    cy: 1247775,
+    plot: [0.1556790695280737, 0.17799835516940943, 0.75706923829643258, 0.59814714566929139],
+    tickSz: 900,
+    unit: [0.0227, 0, 0.4135, 0.1488],
+    bandY: [0.0427, 0.7733],
+    label: [0.31399078164009986, 0.34852397124966578],
+  },
+  {
+    cx: 2160905,
+    cy: 1275715,
+    plot: [0.15822645112688152, 0.16638999729612364, 0.76253772710353063, 0.60998877481625935],
+    tickSz: 900,
+    unit: [0.0305, 0.0058, 0.4213, 0.1546],
+    bandY: [0.0689, 0.7905],
+    label: [0.30524072729561386, 0.37151899537544375],
+  },
+  {
+    cx: 2197100,
+    cy: 1241425,
+    plot: [0.079247594050743664, 0.16018248860444956, 0.72290325551411327, 0.61631227453822557],
+    tickSz: 900,
+    unit: [0.0217, 0, 0.4126, 0.1488],
+    bandY: [0.1005, 0.7839],
+    label: [0.22690104526407884, 0.31949393422596367],
+  },
+];
 
-function run(text: string, { sz, color, font = FONT_300, bold = false }: RunStyle): string {
+/** 지표 선·최근치 글자 (보고서 차트의 0070C0) */
+const LINE_BLUE = "0070C0";
+/** 지표 선 굵기 1pt */
+const LINE_WIDTH_EMU = 12700;
+/** 축 눈금 글자 — 테마 tx1 의 65% (보고서 차트 그대로) */
+const AXIS_TEXT = "595959";
+/** 단위 표기·사건 라벨 글자 — 50% 회색 */
+const SHAPE_GRAY = "7F7F7F";
+/** 사건 띠 — 테마 accent1(4F81BD)의 40% 밝은 색에 투명도 약 30% */
+const BAND_FILL = "95B3D7";
+const BAND_ALPHA = 30196;
+/** 사건 띠 너비 (차트 너비 대비) */
+const BAND_W = 0.012;
+/** 사건 라벨이 띠 오른쪽에서 떨어진 거리·상자 크기 (S&P500 차트에서 잰 값) */
+const EVENT_GAP = 0.0562;
+const EVENT_BOX: [number, number, number, number] = [0.4058, 0.1853, 0.4214, 0];
+/** 최근치 레이블을 마지막 점에서 옮기는 정도 (차트 크기 대비) — 선 아래에 둘 때 / 위에 둘 때 */
+const LABEL_DX = -0.025;
+const LABEL_DY_BELOW = 0.19;
+const LABEL_DY_ABOVE = -0.225;
+
+const NS_C15 = "http://schemas.microsoft.com/office/drawing/2012/chart";
+const RPR_REST = `i="0" u="none" strike="noStrike" kern="1200" baseline="0"`;
+
+function fontXml(font: string): string {
+  return `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/>`;
+}
+
+function fill(color: string): string {
+  return `<a:solidFill><a:srgbClr val="${color}"/></a:solidFill>`;
+}
+
+/** 축 눈금 글자 */
+function axisText(sz: number): string {
   return (
-    `<a:r><a:rPr lang="ko-KR" sz="${sz}" b="${bold ? 1 : 0}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
-    `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:rPr><a:t>${esc(text)}</a:t></a:r>`
+    `<c:txPr><a:bodyPr rot="-60000000" spcFirstLastPara="1" vertOverflow="ellipsis" vert="horz" wrap="square" anchor="ctr" anchorCtr="1"/><a:lstStyle/>` +
+    `<a:p><a:pPr><a:defRPr sz="${sz}" b="0" ${RPR_REST}>${fill(AXIS_TEXT)}${fontXml(FONT_300)}<a:cs typeface="+mn-cs"/></a:defRPr></a:pPr>` +
+    `<a:endParaRPr lang="ko-KR"/></a:p></c:txPr>`
   );
-}
-
-function para(runs: string, align: "l" | "ctr" | "r" = "ctr", sz = 900, bold = false): string {
-  // defRPr 의 크기를 run 과 맞춘다 — Excel 은 이 기본 크기로 상자를 잰다
-  return `<a:p><a:pPr algn="${align}"><a:defRPr sz="${sz}" b="${bold ? 1 : 0}"/></a:pPr>${runs}</a:p>`;
-}
-
-function richText(paragraphs: string): string {
-  // 데이터 레이블 상자가 글에 맞게 늘어나도록 (wrap="none" 만으로는 Excel 이 기본 너비 안에서 줄을 바꾼다)
-  return `<c:tx><c:rich><a:bodyPr wrap="none"><a:spAutoFit/></a:bodyPr><a:lstStyle/>${paragraphs}</c:rich></c:tx>`;
-}
-
-/** 글자 기본값(축 눈금 등) */
-function textProps(sz: number, color: string, font = FONT_300): string {
-  return (
-    `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${sz}" b="0"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>` +
-    `<a:latin typeface="${esc(font)}"/><a:ea typeface="${esc(font)}"/></a:defRPr></a:pPr><a:endParaRPr lang="ko-KR"/></a:p></c:txPr>`
-  );
-}
-
-function numLit(values: number[]): string {
-  return (
-    `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
-    values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("") +
-    `</c:numLit>`
-  );
-}
-
-function numRef(formula: string): string {
-  return `<c:numRef><c:f>${esc(formula)}</c:f></c:numRef>`;
 }
 
 const SHOW_NONE =
   `<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/><c:showSerName val="0"/>` +
   `<c:showPercent val="0"/><c:showBubbleSize val="0"/>`;
 
-/** 점 하나에 붙는 짧은 데이터 레이블 (x 눈금용). 긴 글은 Excel 이 좁은 상자에서 줄바꿈하므로 텍스트 상자(textBox)를 쓴다. */
-function dataLabel(idx: number, tx: string, pos: "t" | "b" | "l" | "r" | "ctr"): string {
+/** 최근치 레이블 — 값(10pt 굵게) 아래 줄에 전주비(8pt 굵게). 오른쪽 맞춤, 줄 간격 고정 11pt. */
+function latestLabel(idx: number, value: string, change: string, dy: number, size: [number, number]): string {
+  const rPr = (sz: number) => `<a:rPr lang="ko-KR" altLang="en-US" sz="${sz}" b="1" ${RPR_REST}>${fill(LINE_BLUE)}${fontXml(FONT_300)}</a:rPr>`;
+  const pPr =
+    `<a:pPr algn="r"><a:lnSpc><a:spcPts val="1100"/></a:lnSpc>` +
+    `<a:defRPr sz="900" b="1" ${RPR_REST}>${fill(LINE_BLUE)}${fontXml(FONT_300)}<a:cs typeface="+mn-cs"/></a:defRPr></a:pPr>`;
+  const body = `<a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" vert="horz" wrap="square" lIns="38100" tIns="19050" rIns="38100" bIns="19050" anchor="ctr" anchorCtr="0"><a:noAutofit/></a:bodyPr><a:lstStyle/>`;
+  const text =
+    `<a:r>${rPr(1000)}<a:t>${esc(value)}</a:t></a:r>` +
+    (change ? `<a:br>${rPr(1000)}</a:br><a:r>${rPr(800)}<a:t>${esc(change)}</a:t></a:r>` : "");
+  const noBox = `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln><a:effectLst/></c:spPr>`;
   return (
-    `<c:dLbl><c:idx val="${idx}"/>${tx}<c:dLblPos val="${pos}"/>` +
-    `<c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/>` +
-    `<c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbl>`
-  );
-}
-
-function dataLabels(labels: string): string {
-  return labels ? `<c:dLbls>${labels}${SHOW_NONE}</c:dLbls>` : "";
-}
-
-function line(width: number, color: string, cap: "rnd" | "flat" = "rnd"): string {
-  return `<c:spPr><a:ln w="${width}" cap="${cap}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
-}
-
-const NO_LINE = `<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>`;
-const NO_MARKER = `<c:marker><c:symbol val="none"/></c:marker>`;
-
-type Series = { idx: number; name: string; spPr: string; dLbls: string; xVal: string; yVal: string };
-
-function seriesXml({ idx, name, spPr, dLbls, xVal, yVal }: Series): string {
-  return (
-    `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:v>${esc(name)}</c:v></c:tx>` +
-    spPr +
-    NO_MARKER +
-    dLbls +
-    `<c:xVal>${xVal}</c:xVal><c:yVal>${yVal}</c:yVal><c:smooth val="0"/></c:ser>`
-  );
-}
-
-function valueAxis(
-  id: number,
-  crossId: number,
-  pos: "b" | "l",
-  min: number,
-  max: number,
-  options: { numFmt: string; labels: boolean; axisLine: boolean; majorUnit?: number }
-): string {
-  return (
-    `<c:valAx><c:axId val="${id}"/>` +
-    `<c:scaling><c:orientation val="minMax"/><c:max val="${max}"/><c:min val="${min}"/></c:scaling>` +
-    `<c:delete val="0"/><c:axPos val="${pos}"/>` +
-    `<c:numFmt formatCode="${esc(options.numFmt)}" sourceLinked="0"/>` +
-    `<c:majorTickMark val="none"/><c:minorTickMark val="none"/>` +
-    `<c:tickLblPos val="${options.labels ? "nextTo" : "none"}"/>` +
-    (options.axisLine
-      ? `<c:spPr><a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></c:spPr>`
-      : NO_LINE) +
-    textProps(SZ_TICK, TICK) +
-    `<c:crossAx val="${crossId}"/><c:crosses val="min"/><c:crossBetween val="midCat"/>` +
-    (options.majorUnit ? `<c:majorUnit val="${options.majorUnit}"/>` : "") +
-    `</c:valAx>`
-  );
-}
-
-/** 차트 위 텍스트 상자 하나 (좌표는 차트 크기 대비 비율). wrap="none" 이라 상자가 좁아도 줄바꿈하지 않는다. */
-function textBox(box: { x0: number; y0: number; x1: number; y1: number }, paragraphs: string): string {
-  const f = (v: number) => v.toFixed(4);
-  return (
-    `<cdr:relSizeAnchor><cdr:from><cdr:x>${f(box.x0)}</cdr:x><cdr:y>${f(box.y0)}</cdr:y></cdr:from>` +
-    `<cdr:to><cdr:x>${f(box.x1)}</cdr:x><cdr:y>${f(box.y1)}</cdr:y></cdr:to>` +
-    `<cdr:sp macro="" textlink=""><cdr:nvSpPr><cdr:cNvPr id="${nextShapeId++}" name="TextBox"/><cdr:cNvSpPr txBox="1"/></cdr:nvSpPr>` +
-    `<cdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></cdr:spPr>` +
-    `<cdr:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"/><a:lstStyle/>${paragraphs}</cdr:txBody>` +
-    `</cdr:sp></cdr:relSizeAnchor>`
+    `<c:dLbls><c:dLbl><c:idx val="${idx}"/>` +
+    `<c:layout><c:manualLayout><c:x val="${LABEL_DX}"/><c:y val="${dy.toFixed(4)}"/></c:manualLayout></c:layout>` +
+    `<c:tx><c:rich>${body}<a:p>${pPr}${text}</a:p></c:rich></c:tx>` +
+    noBox +
+    `<c:txPr>${body}<a:p>${pPr}<a:endParaRPr lang="ko-KR"/></a:p></c:txPr>` +
+    `<c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>` +
+    `<c:extLst><c:ext uri="{CE6537A1-D6FC-4f65-9D91-7224C49458BB}" xmlns:c15="${NS_C15}">` +
+    `<c15:layout><c:manualLayout><c:w val="${size[0]}"/><c:h val="${size[1]}"/></c:manualLayout></c15:layout></c:ext></c:extLst>` +
+    `</c:dLbl>` +
+    noBox +
+    SHOW_NONE +
+    `<c:extLst><c:ext uri="{CE6537A1-D6FC-4f65-9D91-7224C49458BB}" xmlns:c15="${NS_C15}"><c15:showLeaderLines val="0"/></c:ext></c:extLst>` +
+    `</c:dLbls>`
   );
 }
 
 let nextShapeId = 2;
 
+type Box = [number, number, number, number];
+
+function anchor([x0, y0, x1, y1]: Box, shape: string): string {
+  const f = (v: number) => v.toFixed(5);
+  return (
+    `<cdr:relSizeAnchor><cdr:from><cdr:x>${f(x0)}</cdr:x><cdr:y>${f(y0)}</cdr:y></cdr:from>` +
+    `<cdr:to><cdr:x>${f(x1)}</cdr:x><cdr:y>${f(y1)}</cdr:y></cdr:to>${shape}</cdr:relSizeAnchor>`
+  );
+}
+
+/** 차트 위 텍스트 상자 (좌표는 차트 크기 대비 비율). 줄바꿈 없음 · 안쪽 여백 0 — 보고서 차트의 단위 표기·사건 라벨과 같다. */
+function textBox(box: Box, lines: string[], sz: number, lineSpacing?: number): string {
+  const rPr = `<a:rPr lang="ko-KR" altLang="en-US" sz="${sz}">${fill(SHAPE_GRAY)}${fontXml(FONT_400)}</a:rPr>`;
+  const pPr = lineSpacing ? `<a:pPr algn="l"><a:lnSpc><a:spcPts val="${lineSpacing}"/></a:lnSpc><a:buNone/></a:pPr>` : "";
+  return anchor(
+    box,
+    `<cdr:sp macro="" textlink=""><cdr:nvSpPr><cdr:cNvPr id="${nextShapeId++}" name="TextBox"/><cdr:cNvSpPr txBox="1"/></cdr:nvSpPr>` +
+      `<cdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></cdr:spPr>` +
+      `<cdr:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0"/><a:lstStyle/>` +
+      lines.map((text) => `<a:p>${pPr}<a:r>${rPr}<a:t>${esc(text)}</a:t></a:r></a:p>`).join("") +
+      `</cdr:txBody></cdr:sp>`
+  );
+}
+
+/** 사건 띠 — 반투명 연파랑 직사각형 */
+function bandShape(box: Box): string {
+  return anchor(
+    box,
+    `<cdr:sp macro="" textlink=""><cdr:nvSpPr><cdr:cNvPr id="${nextShapeId++}" name="직사각형"/><cdr:cNvSpPr/></cdr:nvSpPr>` +
+      `<cdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+      `<a:solidFill><a:srgbClr val="${BAND_FILL}"><a:alpha val="${BAND_ALPHA}"/></a:srgbClr></a:solidFill><a:ln><a:noFill/></a:ln></cdr:spPr>` +
+      `<cdr:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="ko-KR"/></a:p></cdr:txBody></cdr:sp>`
+  );
+}
 
 function userShapesXml(shapes: string[]): string {
   return (
@@ -311,131 +354,157 @@ function userShapesXml(shapes: string[]): string {
   );
 }
 
-/** 차트 하나. dataCol 은 시트 2 에서 이 차트의 날짜 열 번호(0 기준) — 값은 그 다음 열. */
+function numCache(formatCode: string, values: number[]): string {
+  return (
+    `<c:numCache><c:formatCode>${esc(formatCode)}</c:formatCode><c:ptCount val="${values.length}"/>` +
+    values.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join("") +
+    `</c:numCache>`
+  );
+}
+
+/**
+ * 차트 하나 — 보고서(워드)의 차트와 같은 서식의 꺾은선형 차트(날짜 축).
+ * dataCol 은 시트 2 에서 이 차트의 날짜 열 번호(0 기준) — 값은 그 다음 열. index 는 CHART_SPECS 에서의 순서.
+ */
 function chartXml(
   spec: ChartSpec,
   chart: MarketChart,
   market: WeeklyMarket,
   dataCol: number,
-  first: boolean
+  index: number
 ): { chart: string; shapes: string | null } {
+  const ref = CHART_REF[index] ?? CHART_REF[0];
+  const first = index === 0;
   const n = chart.points.length;
   const dateRef = `'${DATA_SHEET}'!$${col(dataCol)}$2:$${col(dataCol)}$${n + 1}`;
   const valueRef = `'${DATA_SHEET}'!$${col(dataCol + 1)}$2:$${col(dataCol + 1)}$${n + 1}`;
 
-  const { windowStart, ticks } = marketWindow(market.asOf);
+  const { windowStart } = marketWindow(market.asOf);
   const scale = yScale(chart.points.map((p) => p.value));
   const xMin = serial(windowStart);
-  // 축은 기준일보다 열흘쯤 더 오른쪽까지 — 사용자 엑셀처럼 선이 거의 오른쪽 끝에서 끝난다
-  const xMax = serial(market.asOf) + 10;
-  const yFormat = scale.decimals === 0 ? "#,##0" : `0.${"0".repeat(scale.decimals)}`;
+  const xMax = serial(market.asOf);
+  // 눈금 네 개(창의 처음 · 1/3 · 2/3 · 끝) — 보고서 차트가 기간의 1/3(일 단위)을 간격으로 쓴다. 다섯 개면 Excel 이 글자를 기울이거나 자른다
+  const tickUnit = Math.max(1, Math.floor((xMax - xMin) / 3));
+  const yFormat = scale.decimals === 0 ? `#,##0_);[Red]\\(#,##0\\)` : `#,##0.${"0".repeat(scale.decimals)}_);[Red]\\(#,##0.${"0".repeat(scale.decimals)}\\)`;
 
-  const eventSerial = serial(market.event.date);
-  const eventInWindow = market.event.date >= windowStart && market.event.date <= market.asOf;
-  const eventX = PLOT_X + PLOT_W * ((eventSerial - xMin) / (xMax - xMin));
+  const [px, py, pw, ph] = ref.plot;
+  // 점의 위치(차트 크기 대비 비율)와, 주어진 상자 안에 들어오는 점의 수 — 글 상자가 지표 선을 덜 가리는 자리를 찾는 데 쓴다
+  const xOf = (date: string) => px + pw * ((serial(date) - xMin) / (xMax - xMin || 1));
+  const yOf = (value: number) => py + ph * ((scale.hi - value) / (scale.hi - scale.lo || 1));
+  const overlap = ([x0, x1]: [number, number], [y0, y1]: [number, number]) =>
+    chart.points.filter((p) => {
+      const x = xOf(p.date);
+      const y = yOf(p.value);
+      return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    }).length;
 
-  // ① 사건 띠 — 같은 날짜의 아래·위 두 점을 굵은 연파랑 선으로 잇는다. 첫 계열이라 지표 선 뒤에 그려진다.
-  const band: Series | null = eventInWindow
-    ? {
-        idx: 0,
-        name: market.event.label,
-        spPr: line(BAND_WIDTH_EMU, BAND, "flat"),
-        dLbls: "",
-        xVal: numLit([eventSerial, eventSerial]),
-        yVal: numLit([scale.lo, scale.hi]),
-      }
-    : null;
-
-  // ② 지표 선
-  const main: Series = {
-    idx: 1,
-    name: spec.title,
-    spPr: line(25400, BLUE), // 2pt — 사용자 엑셀 차트의 선 굵기
-    dLbls: "",
-    xVal: numRef(dateRef),
-    yVal: numRef(valueRef),
-  };
-
-  // 차트 위 텍스트 상자 — ④ 단위 표기 ⑤ 최근치·전주비 ⑥ 첫 차트엔 사건 라벨
-  const shapes: string[] = [];
-  shapes.push(textBox({ x0: 0.03, y0: UNIT_Y, x1: 0.7, y1: UNIT_Y + 0.11 }, para(run(spec.unitLabel, { sz: SZ_NOTE, color: NOTE }), "l", SZ_NOTE)));
+  // 최근치 레이블 — 마지막 점에 붙는다
   const { latest, weekAgo } = chart;
-  if (latest) {
+  let dLbls = "";
+  /** 최근치 레이블이 차지하는 자리 (x0, y0, x1, y1) — 사건 라벨이 이 자리를 피한다 */
+  let labelRect: Box | null = null;
+  if (latest && n > 0) {
     const below = annotationBelow(chart.points, windowStart, market.asOf, scale.lo, scale.hi);
-    const yFrac = (value: number) => PLOT_Y + ((scale.hi - value) / (scale.hi - scale.lo)) * PLOT_H;
-    const recent = chart.points
-      .filter((p) => dateFraction(p.date, windowStart, market.asOf) >= 0.7)
-      .map((p) => p.value);
-    const anchor = recent.length ? (below ? Math.min(...recent) : Math.max(...recent)) : latest.value;
     const change = weekAgo ? `(${first ? "전주比 " : ""}${formatWeekChange(spec, latest, weekAgo)})` : "";
-    const h = change ? 0.21 : 0.12;
-    // 아래에 둘 때는 x축 선(PLOT_Y + PLOT_H) 위에서 끝나게(글이 상자 아래로 0.035쯤 내려오므로 여유를 둔다),
-    // 위에 둘 때는 단위 표기 아래에서 시작하게
-    const top = below
-      ? Math.min(PLOT_Y + PLOT_H - h - 0.05, yFrac(anchor) + 0.03)
-      : Math.max(UNIT_Y + 0.08, yFrac(anchor) - (h + 0.03));
-    shapes.push(
-      textBox(
-        { x0: 0.4, y0: top, x1: PLOT_X + PLOT_W + 0.02, y1: top + h },
-        para(run(formatValue(spec, latest.value), { sz: SZ_VALUE, color: BLUE, bold: true }), "r", SZ_VALUE, true) +
-          (change ? para(run(change, { sz: SZ_CHANGE, color: BLUE, bold: true }), "r", SZ_CHANGE, true) : "")
-      )
-    );
-  }
-  if (first && eventInWindow) {
-    shapes.push(
-      textBox(
-        { x0: eventX + BAND_GAP, y0: UNIT_Y + 0.1, x1: Math.min(0.99, eventX + 0.55), y1: UNIT_Y + 0.28 },
-        para(run(market.event.label, { sz: SZ_NOTE, color: NOTE, font: FONT_400 }), "l", SZ_NOTE) +
-          para(run(market.event.note, { sz: SZ_NOTE, color: NOTE, font: FONT_400 }), "l", SZ_NOTE)
-      )
-    );
+    // 레이블 가운데가 마지막 점에서 dy 만큼 옮겨진다. 보고서에서는 손으로 옮긴 자리라, 여기서는 글(두 줄 ≈ 차트 높이의 0.24)이
+    // 지표 선과 가장 덜 겹치는 dy 를 고른다 — x축·단위 표기를 넘지 않는 범위에서, 같으면 기본 자리(아래 0.19 / 위 -0.225)에 가까운 쪽
+    const pointY = yOf(latest.value);
+    const preferred = below ? LABEL_DY_BELOW : LABEL_DY_ABOVE;
+    const textW = first ? 0.4 : 0.3;
+    const span: [number, number] = [px + pw + 0.02 - textW, px + pw + 0.03];
+    let dy = preferred;
+    let best = Infinity;
+    for (let step = -16; step <= 10; step += 1) {
+      const candidate = step * 0.025;
+      const center = pointY + candidate;
+      if (Math.abs(candidate) < 0.1 || center - 0.12 < ref.unit[3] - 0.02 || center + 0.12 > py + ph - 0.01) continue;
+      const cost = overlap(span, [center - 0.12, center + 0.12]) + Math.abs(candidate - preferred) * 0.01;
+      if (cost < best) {
+        best = cost;
+        dy = candidate;
+      }
+    }
+    labelRect = [span[0], pointY + dy - 0.12, span[1], pointY + dy + 0.12];
+    dLbls = latestLabel(n - 1, formatValue(spec, latest.value), change, dy, ref.label);
   }
 
-  // ③ x 눈금 라벨 — 축 아래에 "11/3 · 2/3 · …" 를 정확한 날짜에 찍기 위한 투명한 점들
-  const tickSeries: Series = {
-    idx: 2,
-    name: "눈금",
-    spPr: NO_LINE,
-    dLbls: dataLabels(
-      ticks
-        .map((tick, i) => dataLabel(i, richText(para(run(formatTickDate(tick), { sz: SZ_TICK, color: TICK }), "ctr", SZ_TICK)), "b"))
-        .join("")
-    ),
-    xVal: numLit(ticks.map(serial)),
-    yVal: numLit(ticks.map(() => scale.lo)),
-  };
+  // 차트 위 도형 — 단위 표기 · 사건 띠 · (첫 차트만) 사건 라벨
+  const shapes: string[] = [textBox(ref.unit, [spec.unitLabel], 800)];
+  const eventSerial = serial(market.event.date);
+  if (market.event.date >= windowStart && market.event.date <= market.asOf && xMax > xMin) {
+    const eventX = px + pw * ((eventSerial - xMin) / (xMax - xMin));
+    shapes.push(bandShape([eventX - BAND_W / 2, ref.bandY[0], eventX + BAND_W / 2, ref.bandY[1]]));
+    if (first) {
+      // 보고서 자리(띠 오른쪽 위)가 기본. 지표 선이 지나가면 플롯 아래쪽 자리와 견주어 덜 겹치는 쪽에 둔다 (글 너비 ≈ 0.33, 높이 ≈ 0.17)
+      const x0 = Math.min(eventX + BAND_W / 2 + EVENT_GAP, 0.99 - EVENT_BOX[0]);
+      const cost = (top: number) =>
+        overlap([x0, x0 + 0.33], [top, top + 0.17]) +
+        (labelRect && x0 < labelRect[2] && x0 + 0.33 > labelRect[0] && top < labelRect[3] && top + 0.17 > labelRect[1] ? 1000 : 0);
+      const top = [EVENT_BOX[1], py + ph - 0.2].reduce((a, b) => (cost(b) < cost(a) ? b : a));
+      shapes.push(textBox([x0, top, x0 + EVENT_BOX[0], top + (EVENT_BOX[2] - EVENT_BOX[1])], [market.event.label, market.event.note], 700, 800));
+    }
+  }
+
+  const series =
+    `<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>${esc(spec.title)}</c:v></c:tx>` +
+    `<c:spPr><a:ln w="${LINE_WIDTH_EMU}" cap="rnd">${fill(LINE_BLUE)}<a:round/></a:ln><a:effectLst/></c:spPr>` +
+    `<c:marker><c:symbol val="none"/></c:marker>` +
+    dLbls +
+    `<c:cat><c:numRef><c:f>${esc(dateRef)}</c:f>${numCache("yyyy\\-mm\\-dd", chart.points.map((p) => serial(p.date)))}</c:numRef></c:cat>` +
+    `<c:val><c:numRef><c:f>${esc(valueRef)}</c:f>${numCache("General", chart.points.map((p) => p.value))}</c:numRef></c:val>` +
+    `<c:smooth val="0"/></c:ser>`;
+
+  const dateAxis =
+    `<c:dateAx><c:axId val="10"/><c:scaling><c:orientation val="minMax"/><c:max val="${xMax}"/><c:min val="${xMin}"/></c:scaling>` +
+    `<c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="m\\/d" sourceLinked="0"/>` +
+    `<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>` +
+    `<c:spPr><a:noFill/><a:ln w="9525" cap="flat" cmpd="sng" algn="ctr">${fill("000000")}<a:round/></a:ln><a:effectLst/></c:spPr>` +
+    axisText(ref.tickSz) +
+    `<c:crossAx val="20"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblOffset val="100"/>` +
+    `<c:baseTimeUnit val="days"/><c:majorUnit val="${tickUnit}"/><c:majorTimeUnit val="days"/></c:dateAx>`;
+
+  const valueAxis =
+    `<c:valAx><c:axId val="20"/><c:scaling><c:orientation val="minMax"/><c:max val="${scale.hi}"/><c:min val="${scale.lo}"/></c:scaling>` +
+    `<c:delete val="0"/><c:axPos val="l"/><c:numFmt formatCode="${esc(yFormat)}" sourceLinked="0"/>` +
+    `<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>` +
+    `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln><a:effectLst/></c:spPr>` +
+    axisText(ref.tickSz) +
+    `<c:crossAx val="10"/><c:crosses val="autoZero"/><c:crossBetween val="between"/><c:majorUnit val="${scale.step}"/></c:valAx>`;
 
   const plotLayout =
     `<c:layout><c:manualLayout><c:layoutTarget val="inner"/><c:xMode val="edge"/><c:yMode val="edge"/>` +
-    `<c:x val="${PLOT_X}"/><c:y val="${PLOT_Y}"/><c:w val="${PLOT_W}"/><c:h val="${PLOT_H}"/></c:manualLayout></c:layout>`;
-
-  const title =
-    `<c:title>${richText(para(run(spec.title, { sz: SZ_TITLE, color: "000000", bold: true }), "l", SZ_TITLE, true))}` +
-    `<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.005"/><c:y val="0.01"/></c:manualLayout></c:layout>` +
-    `<c:overlay val="1"/></c:title>`;
-
+    `<c:x val="${px}"/><c:y val="${py}"/><c:w val="${pw}"/><c:h val="${ph}"/></c:manualLayout></c:layout>`;
 
   const chartXmlText =
     XML +
     `<c:chartSpace xmlns:c="${NS_C}" xmlns:a="${NS_A}" xmlns:r="${NS_R}">` +
-    `<c:date1904 val="0"/><c:lang val="ko-KR"/><c:roundedCorners val="0"/>` +
-    `<c:chart>${title}<c:autoTitleDeleted val="0"/><c:plotArea>${plotLayout}` +
-    `<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>` +
-    (band ? seriesXml(band) : "") +
-    seriesXml(main) +
-    seriesXml(tickSeries) +
-    `<c:axId val="10"/><c:axId val="20"/></c:scatterChart>` +
-    valueAxis(10, 20, "b", xMin, xMax, { numFmt: "m/d", labels: false, axisLine: true }) +
-    valueAxis(20, 10, "l", scale.lo, scale.hi, { numFmt: yFormat, labels: true, axisLine: false, majorUnit: scale.step }) +
-    `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>` +
-    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>` +
-    `<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr>` +
-    textProps(SZ_TICK, "000000") +
-    (shapes.length ? `<c:userShapes r:id="rId1"/>` : "") +
+    `<c:date1904 val="0"/><c:lang val="ko-KR"/><c:roundedCorners val="0"/><c:style val="2"/>` +
+    `<c:chart><c:autoTitleDeleted val="1"/><c:plotArea>${plotLayout}` +
+    `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${series}` +
+    `<c:dLbls>${SHOW_NONE}</c:dLbls><c:smooth val="0"/><c:axId val="10"/><c:axId val="20"/></c:lineChart>` +
+    dateAxis +
+    valueAxis +
+    `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln><a:effectLst/></c:spPr></c:plotArea>` +
+    `<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/><c:showDLblsOverMax val="0"/></c:chart>` +
+    `<c:spPr><a:noFill/><a:ln w="9525" cap="flat" cmpd="sng" algn="ctr"><a:noFill/><a:round/></a:ln><a:effectLst/></c:spPr>` +
+    `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr>${fontXml(FONT_300)}</a:defRPr></a:pPr><a:endParaRPr lang="ko-KR"/></a:p></c:txPr>` +
+    `<c:userShapes r:id="rId1"/>` +
     `</c:chartSpace>`;
 
-  return { chart: chartXmlText, shapes: shapes.length ? userShapesXml(shapes) : null };
+  return { chart: chartXmlText, shapes: userShapesXml(shapes) };
+}
+
+/**
+ * 보고서(워드)에 넣을 차트 6개 — CHART_SPECS 순서. 엑셀과 같은 차트 정의이고 값은 차트 안에 캐시로 들어 있다.
+ * 자료가 없는 차트는 빈 차트로 만든다 (양식에 든 옛 값이 남지 않게).
+ */
+export function buildReportCharts(market: WeeklyMarket): { chart: string; shapes: string }[] {
+  const chartById = new Map(market.charts.map((chart) => [chart.id, chart]));
+  return CHART_SPECS.map((spec, index) => {
+    const chart = chartById.get(spec.id) ?? ({ id: spec.id, points: [], latest: null, weekAgo: null, overrideDates: [] } as unknown as MarketChart);
+    const built = chartXml(spec, chart, market, index * 2, index);
+    return { chart: built.chart, shapes: built.shapes ?? userShapesXml([]) };
+  });
 }
 
 // ───────────────────────── 시트 ─────────────────────────
@@ -448,13 +517,13 @@ function drawingXml(placed: Placed[]): string {
       const fromCol = block * BLOCK;
       const fromRow = firstRow - 1; // xdr:row 는 0 기준
       return (
-        `<xdr:twoCellAnchor editAs="oneCell">` +
+        `<xdr:oneCellAnchor>` +
         `<xdr:from><xdr:col>${fromCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${fromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
-        `<xdr:to><xdr:col>${fromCol + BLOCK}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${fromRow + CHART_ROWS}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+        `<xdr:ext cx="${(CHART_REF[index] ?? CHART_REF[0]).cx}" cy="${(CHART_REF[index] ?? CHART_REF[0]).cy}"/>` +
         `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${index + 2}" name="Chart ${index + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
         `<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>` +
         `<a:graphic><a:graphicData uri="${NS_C}"><c:chart xmlns:c="${NS_C}" xmlns:r="${NS_R}" r:id="rId${i + 1}"/></a:graphicData></a:graphic>` +
-        `</xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`
+        `</xdr:graphicFrame><xdr:clientData/></xdr:oneCellAnchor>`
       );
     })
     .join("");
@@ -700,7 +769,7 @@ export function buildMarketWorkbook(market: WeeklyMarket): Uint8Array {
       rels(placed.map((_, i) => ({ id: `rId${i + 1}`, type: `${REL}/chart`, target: `../charts/chart${i + 1}.xml` })))
     );
     placed.forEach(({ spec, chart, index }, i) => {
-      const built = chartXml(spec, chart, market, index * 2, index === 0);
+      const built = chartXml(spec, chart, market, index * 2, index);
       add(`xl/charts/chart${i + 1}.xml`, built.chart);
       if (built.shapes) {
         add(`xl/drawings/chartshapes${i + 1}.xml`, built.shapes);

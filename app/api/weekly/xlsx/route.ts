@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
   const live = request.nextUrl.searchParams.get("live") === "0" ? file : overlayLiveMarket(file, await getLiveQuotes());
   const base = request.nextUrl.searchParams.get("base");
   const reports = await listMarketSnapshots();
+  // 기본 비교 기준은 직전 보고일(따로 지정이 없으면 일주일 전)의 값 — 그날 보고가 없으면 그날 종가
+  const closes = !base || base.startsWith("close:") ? buildCloseSnapshots({ ...live, recentCloses: await fxRecentCloses(live.asOf) }) : [];
   const snapshot = !base
-    ? defaultSnapshot(reports, live.asOf)
-    : base.startsWith("close:")
-      ? (buildCloseSnapshots({ ...live, recentCloses: await fxRecentCloses(live.asOf) }).find((s) => s.prefix === base) ?? null)
-      : (reports.find((s) => s.prefix === base) ?? null);
+    ? defaultSnapshot([...reports, ...closes], live.asOf, live.previousReport)
+    : ((base.startsWith("close:") ? closes : reports).find((s) => s.prefix === base) ?? null);
   const market = applyCompareBase(live, snapshot);
   const bytes = buildMarketWorkbook(market);
   const name = `${market.asOf.slice(2).replaceAll("-", "")}-weekly-market.xlsx`;

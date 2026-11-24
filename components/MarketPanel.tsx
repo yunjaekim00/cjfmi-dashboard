@@ -350,13 +350,22 @@ function Notes({ market, baseline }: { market: WeeklyMarket; baseline: MarketSna
         {overridden.length ? ` ※ 출처 집계 전 종가(CNBC 마감 시세·기사): ${overridden.join(", ")}.` : ""}
         {market.file ? ` · data/${market.file}` : ""}
       </p>
-      <a
-        href={`/api/weekly/xlsx${baseline ? `?base=${encodeURIComponent(baseline.prefix)}` : ""}`}
-        download
-        className="whitespace-nowrap rounded-md border border-line bg-card px-2.5 py-1 text-ink-2 transition-colors hover:bg-[#e7e7e7]"
-      >
-        엑셀 파일로 내려받기 (차트 + 1년치 데이터)
-      </a>
+      <div className="flex flex-col items-stretch gap-1.5 text-center">
+        <a
+          href={`/api/weekly/xlsx${baseline ? `?base=${encodeURIComponent(baseline.prefix)}` : ""}`}
+          download
+          className="whitespace-nowrap rounded-md border border-line bg-card px-2.5 py-1 text-ink-2 transition-colors hover:bg-[#e7e7e7]"
+        >
+          엑셀 파일로 내려받기 (차트 + 1년치 데이터)
+        </a>
+        <a
+          href={`/api/weekly/docx${baseline ? `?base=${encodeURIComponent(baseline.prefix)}` : ""}`}
+          download
+          className="whitespace-nowrap rounded-md border border-line bg-card px-2.5 py-1 text-ink-2 transition-colors hover:bg-[#e7e7e7]"
+        >
+          워드 파일로 내려받기 (보고서 1장)
+        </a>
+      </div>
     </div>
   );
 }

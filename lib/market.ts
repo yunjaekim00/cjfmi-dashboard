@@ -44,6 +44,7 @@ const FileMarket = z.object({
   windowStart: DateString,
   generatedAt: z.string().min(1),
   liveAt: z.string().nullable().optional(),
+  previousReport: DateString.nullable().optional(),
   event: z.object({ date: DateString, label: z.string(), note: z.string().default("") }),
   charts: z.array(
     z.object({

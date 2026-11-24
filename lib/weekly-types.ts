@@ -73,6 +73,8 @@ export type WeeklyBrief = {
     headline: string;
     items: Array<{ category: ReactionCategory; text: string }>;
   };
+  /** 차주 시장 전망 한 줄 — 요약 상자와 차트 사이에 "⇨ 시장은 … 주목" 으로 그린다. 옛 파일에는 없다 */
+  outlook?: string;
   sources: WeeklySource[];
   indicators: WeeklyIndicator[];
   /**

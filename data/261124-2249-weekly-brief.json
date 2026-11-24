@@ -1,0 +1,183 @@
+{
+  "weekStart": "2026-11-18",
+  "weekEnd": "2026-11-24",
+  "generatedAt": "2026-11-24T22:49:26+09:00",
+  "model": "claude-code",
+  "issue": {
+    "headline": "엔비디아가 美 SEC 회계 조사 보도와 젠슨 황 CEO의 전격 복귀로 급등락하며 AI 투자심리를 좌우한 가운데, 연준은 의사록·당국자 발언으로 12월 기준금리 인상을 기정사실화",
+    "points": [
+      "Reuters의 SEC 집행국 조사 보도(20일)에 엔비디아 주가가 폭락(-14%)했으나, 이사회가 사임 11일 만에 젠슨 황을 CEO로 재선임(23일)하자 급반등(+31%)하며 AI 관련주 매수세 회복",
+      "10월 FOMC 의사록(18일)에서 참석자 대다수가 12월 0.25%p 기준금리 인상을 예상, 월러 이사는 0.50%p 조정을 주장했고 뉴욕 연은 총재도 추가 긴축 필요성 언급"
+    ]
+  },
+  "reaction": {
+    "headline": "주가는 AI 우려로 급락 후 반등, 유가 약세 속 국채금리 하락 {{↓}}",
+    "items": [
+      {
+        "category": "원자재",
+        "text": "{{WTI}}는 호르무즈 해협 경유 수출 물량이 전쟁 이전 수준에 근접하고 리비아 송유관 재가동, IEA의 4분기 공급과잉 전망까지 더해지며 {{3개월래 최저로 급락}}"
+      },
+      {
+        "category": "금리",
+        "text": "{{美 10년물}}은 연준 인사들의 긴축 발언에도 주가 급락에 따른 안전자산 선호와 유가 약세로 {{하락}}, {{韓 국고채}} 금리도 금통위(26일)의 기준금리 인상 전망 속 {{동반 내림세}}"
+      },
+      {
+        "category": "주가",
+        "text": "{{S&P500}}은 엔비디아 회계 조사 여파로 조정 국면에 들어섰다가 젠슨 황 복귀에 {{낙폭 일부 만회}}, {{KOSPI}}도 외국인 매도로 급락한 뒤 24일 반도체주 중심으로 {{급반등}}"
+      },
+      {
+        "category": "외환",
+        "text": "{{원달러}}는 외국인의 주식 순매도와 연준 긴축 전망에 따른 달러화 강세(달러인덱스 19개월래 최고)로 {{상승}}했으나, 24일에는 위험선호 회복에 {{오름폭 일부 반납}}"
+      }
+    ]
+  },
+  "outlook": "시장은 美 PCE·3Q GDP 잠정치(25일)와 韓 금통위(26일)에 따른 韓美 금리 향방에 주목",
+  "sources": [
+    {
+      "title": "[11.24] 젠슨 황, Nvidia CEO로 전격 복귀. 美 주가는 반도체 중심으로 급등 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37738&mn=001002",
+      "date": "2026-11-24"
+    },
+    {
+      "title": "[11.19] FOMC 의사록, 추가 금리인상 의견 다수. 연준 월러 이사는 0.50%p 인상 주장 등",
+      "publisher": "국제금융센터",
+      "url": "https://www.kcif.or.kr/annual/reportView?rpt_no=37724&mn=001002",
+      "date": "2026-11-19"
+    },
+    {
+      "title": "Dow soars 1,400 points; Nasdaq surges 6% in its best day since April 2025 as Jensen Huang returns to Nvidia",
+      "publisher": "CNBC",
+      "url": "https://www.cnbc.com/2026/11/22/stock-market-today-live-updates.html",
+      "date": "2026-11-23"
+    },
+    {
+      "title": "Nvidia Stock Plunge Wipes Out Nearly $500 Billion in One Day as SEC Reportedly Probes Its Accounting",
+      "publisher": "Motley Fool(Reuters)",
+      "url": "https://www.fool.com/investing/2026/11/20/nvidia-stock-plunge-wipes-out-nearly-usd500-billion-in-one-day-as-sec-reportedly-probes-its-accounting/",
+      "date": "2026-11-20"
+    },
+    {
+      "title": "Fed minutes: Higher interest rates needed in December as inflation worries mount",
+      "publisher": "Anchorage Daily News(AP)",
+      "url": "https://www.adn.com/business-economy/2026/11/18/fed-minutes-higher-interest-rates-needed-in-december-as-inflation-worries-mount/",
+      "date": "2026-11-18"
+    },
+    {
+      "title": "Crude oil settles at $80.17. Trades at its lowest level since August 26.",
+      "publisher": "investingLive",
+      "url": "https://investinglive.com/commodities/crude-oil-settles-at-80-17-trades-at-its-lowest-level-since-august-26/",
+      "date": "2026-11-23"
+    },
+    {
+      "title": "환율 1340원대 초반 등락…美 증시 급반등에 소폭 하락",
+      "publisher": "아주경제",
+      "url": "https://www.ajunews.com/view/20261124091736076",
+      "date": "2026-11-24"
+    },
+    {
+      "title": "코스피, 젠슨 황 복귀에 6% 급등…장중 5,000선 탈환",
+      "publisher": "애드뉴스인천",
+      "url": "https://www.addnewsin.com/news/articleView.html?idxno=63998",
+      "date": "2026-11-24"
+    }
+  ],
+  "indicators": [
+    {
+      "id": "sp500",
+      "label": "S&P 500",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 7237.17,
+        "time": "2026-11-23T21:42:33.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 7340.53
+      }
+    },
+    {
+      "id": "ust10",
+      "label": "美 10년물",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 4.93,
+        "time": "2026-11-24T02:02:59.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 5.1
+      }
+    },
+    {
+      "id": "kospi",
+      "label": "KOSPI",
+      "unit": "",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 5003.57,
+        "time": "2026-11-24T02:02:00.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 4968.48
+      }
+    },
+    {
+      "id": "ktb3",
+      "label": "국고채 3년",
+      "unit": "%",
+      "digits": 2,
+      "changeStyle": "bp",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 3.638,
+        "time": "2026-11-24T02:02:11.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 3.725
+      }
+    },
+    {
+      "id": "usdkrw",
+      "label": "원/달러",
+      "unit": "원",
+      "digits": 1,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 1345.2,
+        "time": "2026-11-24T02:03:00.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 1335
+      }
+    },
+    {
+      "id": "wti",
+      "label": "WTI",
+      "unit": "$",
+      "digits": 2,
+      "changeStyle": "pct",
+      "latest": {
+        "date": "2026-11-24",
+        "value": 79.89,
+        "time": "2026-11-24T01:53:04.000Z"
+      },
+      "weekAgo": {
+        "date": "2026-11-17",
+        "value": 89.53
+      }
+    }
+  ]
+}

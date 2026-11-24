@@ -26,6 +26,7 @@ const Brief = z
       headline: Line,
       items: z.array(z.object({ category: z.enum(CATEGORIES), text: Line })).min(4).max(4),
     }),
+    outlook: Line.optional(),
     sources: z
       .array(
         z.object({
@@ -99,7 +100,15 @@ const lines = [
   ...brief.issue.points.map((t, i) => [`issue.points[${i}]`, t]),
   ["reaction.headline", brief.reaction.headline],
   ...brief.reaction.items.map((it) => [`reaction.items(${it.category})`, it.text]),
+  ...(brief.outlook ? [["outlook", brief.outlook]] : []),
 ];
+// 차주 전망 한 줄 (사용자 지시, 2026-11-24) — 요약 상자와 차트 사이의 "⇨ 시장은 … 주목"
+if (!brief.outlook) warnings.push("outlook(차주 전망)이 없습니다 — 화면과 워드 보고서에서 그 줄이 빠집니다");
+else {
+  if (!/^시장은 /.test(brief.outlook)) warnings.push('outlook: "시장은 …" 으로 시작합니다');
+  if (!/주목$/.test(brief.outlook.trim())) warnings.push('outlook: "… 주목" 으로 끝냅니다');
+  if (/{{/.test(brief.outlook)) warnings.push("outlook: {{강조}}를 쓰지 않습니다");
+}
 
 // 쓰지 않는 말 (사용자 지시, 2026-11-16) — 있으면 실패
 const BANNED = /(쇼크|레버리지|충격|매파|비둘기파)/;
@@ -112,12 +121,37 @@ const emWidth = (text) =>
 // 모든 문장은 화면 두 줄 분량 (사용자 지시, 2026-11-23) — 한 줄(42em)에 그치거나 두 줄(84em)을 넘으면 경고
 // 예외: [시장반응] headline 은 반드시 한 줄 (사용자 지시, 2026-11-23)
 const LINE_EM = 42;
+const ITEM_MAX_EM = 74;
+/** 분야 문장의 덧붙임 — "…{{등락}}; 韓 정부, …" 처럼 세미콜론 뒤에 붙는 보충 문장 (한 줄을 더 차지한다) */
+const HAS_ADDENDUM = brief.reaction.items.some((it) => it.text.includes(";"));
 for (const [where, text] of lines) {
   const em = emWidth(text);
-  if (where === "reaction.headline") {
-    if (em > LINE_EM) warnings.push(`${where}: 한 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${LINE_EM}em) — [시장반응] 문장은 반드시 한 줄`);
+  if (where === "outlook") {
+    if (em > LINE_EM) warnings.push(`${where}: 한 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${LINE_EM}em) — 차주 전망은 반드시 한 줄`);
+  } else if (where === "reaction.headline") {
+    // 보고서 한 장이 꽉 차야 한다 (사용자 지시, 2026-11-24): 분야 문장에 덧붙임(세미콜론 뒤 보충 문장)이 있으면 그만큼 줄이 늘므로
+    // [시장반응]은 한 줄, 없으면 두 줄로 써서 요약 상자를 채운다
+    if (HAS_ADDENDUM && em > LINE_EM) warnings.push(`${where}: 한 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em) — 분야 문장에 덧붙임(;)이 있는 주에는 [시장반응]을 한 줄로`);
+    if (!HAS_ADDENDUM && em <= LINE_EM) warnings.push(`${where}: 한 줄입니다 (폭 ${em.toFixed(0)}em) — 덧붙임(;)이 없는 주에는 두 줄(44~76em)로 써야 보고서 한 장이 찹니다`);
+    if (em > 76) warnings.push(`${where}: 두 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > 76em)`);
   } else if (em <= LINE_EM + 8) warnings.push(`${where}: 한 줄 분량입니다 (폭 ${em.toFixed(0)}em) — 날짜·주체·수치·경과를 넣어 두 줄 분량(50~84em)으로`);
+  // 시장반응 items 는 워드 보고서(/api/weekly/docx)의 요약 상자에서 "(원자재) " 같은 머리말과 내어쓰기만큼 줄이 짧다 —
+  // 74em 을 넘으면 세 줄이 된다 (2026-11-24 양식으로 잰 값: 73.7em 은 두 줄, 75.9em 은 세 줄)
+  else if (where.startsWith("reaction.items") && text.includes(";")) {
+    // 덧붙임이 있는 문장은 세 줄까지 (본문 두 줄 + 덧붙임 한 줄)
+    if (em > ITEM_MAX_EM + 38) warnings.push(`${where}: 덧붙임 포함 세 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em)`);
+  } else if (where.startsWith("reaction.items") && em > ITEM_MAX_EM)
+    warnings.push(`${where}: 워드 보고서에서 두 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${ITEM_MAX_EM}em)`);
   else if (em > LINE_EM * 2) warnings.push(`${where}: 두 줄을 넘을 듯합니다 (폭 ${em.toFixed(0)}em > ${LINE_EM * 2}em)`);
+}
+// 워드 보고서 요약 상자는 12줄이 차야 한 장에 빈 줄이 없다 — 주간이슈 2 + 시장반응 1~2 + 분야 4문장 × 2(덧붙임이 있으면 +1)
+{
+  const linesOf = (text, perLine) => Math.max(1, Math.ceil(emWidth(text) / perLine));
+  const total =
+    linesOf(brief.issue.headline, 40) +
+    linesOf(brief.reaction.headline, LINE_EM) +
+    brief.reaction.items.reduce((sum, it) => sum + linesOf(it.text, 37.5), 0);
+  if (total !== 12) warnings.push(`요약 상자가 약 ${total}줄입니다 — 워드 보고서 한 장이 꽉 차려면 12줄 (주간이슈 2 · 시장반응 ${HAS_ADDENDUM ? 1 : 2} · 분야 문장 ${HAS_ADDENDUM ? 9 : 8})`);
 }
 // 한 문장 안에서 같은 낱말을 되풀이하지 않는다 (사용자 지시, 2026-11-23) — 끝의 조사를 떼고 두 글자 이상 한글 낱말을 센다
 const PARTICLE = /(에서는|에서도|에서|에는|에도|으로|까지|부터|은|는|이|가|을|를|의|에|도|와|과|로)$/;
@@ -141,6 +175,12 @@ for (const it of brief.reaction.items) {
   if (hit) warnings.push(`reaction.items(${it.category}): "${hit[0]}" — 주간 변동폭은 적지 않습니다 (차트·표에 있음). 방향과 배경만`);
   const level = text.match(INDICATOR_LEVEL);
   if (level) warnings.push(`reaction.items(${it.category}): "${level[0]}" — 지표 수치는 적지 않습니다 (차트·표에 있음). 상승·하락 등 변동 현황과 그 배경·이유만`);
+}
+// 분야별 문장은 지표 두 개를 한 문장에 (샘플 보고서의 틀, 2026-11-24) — 빠진 지표를 알린다
+const PAIRS = { 금리: ["美", "韓"], 주가: ["S&P500", "KOSPI"], 외환: ["원달러", "엔달러"], 원자재: ["WTI"] };
+for (const it of brief.reaction.items) {
+  const missing = (PAIRS[it.category] ?? []).filter((name) => !strip(it.text).includes(name));
+  if (missing.length) warnings.push(`reaction.items(${it.category}): ${missing.join(", ")} 이(가) 없습니다 — 분야별 문장은 지표 두 개(금리 美·韓, 주가 S&P500·KOSPI, 외환 원달러·엔달러)를 함께 씁니다`);
 }
 // 모든 문장은 명사형 종결 (사용자 지시, 2026-11-17). 끝의 괄호와 화살표는 빼고 본다 — 시장반응 headline 은 화살표로 끝날 수 있다.
 const ending = (text) => strip(text).trim().replace(/\s*\([^)]*\)\s*$/, "").replace(/[\s↑↓]+$/, "");
